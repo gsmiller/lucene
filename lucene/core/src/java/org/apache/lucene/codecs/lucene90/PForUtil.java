@@ -35,6 +35,8 @@ final class PForUtil {
   }
 
   private final ForUtil forUtil;
+  final long[] bpvHistogram = new long[32];
+  final long[] exceptionsHistogram = new long[4];
 
   PForUtil(ForUtil forUtil) {
     assert ForUtil.BLOCK_SIZE <= 256 : "blocksize must fit in one byte. got " + ForUtil.BLOCK_SIZE;
@@ -98,6 +100,8 @@ final class PForUtil {
     final int token = Byte.toUnsignedInt(in.readByte());
     final int bitsPerValue = token & 0x1f;
     final int numExceptions = token >>> 5;
+    bpvHistogram[bitsPerValue]++;
+    exceptionsHistogram[numExceptions]++;
     if (bitsPerValue == 0) {
       Arrays.fill(longs, 0, ForUtil.BLOCK_SIZE, in.readVLong());
     } else {
@@ -114,6 +118,8 @@ final class PForUtil {
     final int token = Byte.toUnsignedInt(in.readByte());
     final int bitsPerValue = token & 0x1f;
     final int numExceptions = token >>> 5;
+    bpvHistogram[bitsPerValue]++;
+    exceptionsHistogram[numExceptions]++;
     if (bitsPerValue == 0) {
       in.readVLong();
       in.skipBytes((numExceptions << 1));

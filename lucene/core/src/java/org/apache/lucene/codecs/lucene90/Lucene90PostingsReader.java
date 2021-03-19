@@ -564,6 +564,16 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     public long cost() {
       return docFreq;
     }
+
+    @Override
+    public long[] getPForUtilBpvHistogram() {
+      return pforUtil.bpvHistogram;
+    }
+
+    @Override
+    public long[] getPForUtilExceptionsHistogram() {
+      return pforUtil.exceptionsHistogram;
+    }
   }
 
   // Also handles payloads + offsets
@@ -1051,6 +1061,16 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     public long cost() {
       return docFreq;
     }
+
+    @Override
+    public long[] getPForUtilBpvHistogram() {
+      return pforUtil.bpvHistogram;
+    }
+
+    @Override
+    public long[] getPForUtilExceptionsHistogram() {
+      return pforUtil.exceptionsHistogram;
+    }
   }
 
   final class BlockImpactsDocsEnum extends ImpactsEnum {
@@ -1245,6 +1265,16 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     @Override
     public long cost() {
       return docFreq;
+    }
+
+    @Override
+    public long[] getPForUtilBpvHistogram() {
+      return pforUtil.bpvHistogram;
+    }
+
+    @Override
+    public long[] getPForUtilExceptionsHistogram() {
+      return pforUtil.exceptionsHistogram;
     }
   }
 
@@ -1539,6 +1569,16 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     @Override
     public long cost() {
       return docFreq;
+    }
+
+    @Override
+    public long[] getPForUtilBpvHistogram() {
+      return pforUtil.bpvHistogram;
+    }
+
+    @Override
+    public long[] getPForUtilExceptionsHistogram() {
+      return pforUtil.exceptionsHistogram;
     }
   }
 
@@ -2054,6 +2094,16 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     @Override
     public long cost() {
       return docFreq;
+    }
+
+    @Override
+    public long[] getPForUtilBpvHistogram() {
+      return pforUtil.bpvHistogram;
+    }
+
+    @Override
+    public long[] getPForUtilExceptionsHistogram() {
+      return pforUtil.exceptionsHistogram;
     }
   }
 

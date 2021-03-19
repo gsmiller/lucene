@@ -109,6 +109,18 @@ final class PForUtil {
     }
   }
 
+  /** Decode deltas, compute the prefix sum and add {@code base} to all decoded longs. */
+  void decodeAndPrefixSum(DataInput in, long base, long[] longs) throws IOException {
+    decode(in, longs);
+    // TODO: is there any way to optimize this? ForDeltaUtil relies on ForUtil#decodeAndPrefixSum
+    //       to expand deltas in a more optimal (and tightly coupled way), but I don't think we can
+    //       leverage that because we must apply the patched exceptions before expanding deltas...
+    longs[0] += base;
+    for (int i = 1; i < ForUtil.BLOCK_SIZE; ++i) {
+      longs[i] += longs[i - 1];
+    }
+  }
+
   /** Skip 128 integers. */
   void skip(DataInput in) throws IOException {
     final int token = Byte.toUnsignedInt(in.readByte());

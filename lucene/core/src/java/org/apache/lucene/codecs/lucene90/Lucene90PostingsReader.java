@@ -564,6 +564,11 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     public long cost() {
       return docFreq;
     }
+
+    @Override
+    public long[] getDocIdBpvHistogram() {
+      return forDeltaUtil.bpvHistogram;
+    }
   }
 
   // Also handles payloads + offsets
@@ -1051,6 +1056,11 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     public long cost() {
       return docFreq;
     }
+
+    @Override
+    public long[] getDocIdBpvHistogram() {
+      return forDeltaUtil.bpvHistogram;
+    }
   }
 
   final class BlockImpactsDocsEnum extends ImpactsEnum {
@@ -1245,6 +1255,11 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     @Override
     public long cost() {
       return docFreq;
+    }
+
+    @Override
+    public long[] getDocIdBpvHistogram() {
+      return forDeltaUtil.bpvHistogram;
     }
   }
 
@@ -1539,6 +1554,11 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     @Override
     public long cost() {
       return docFreq;
+    }
+
+    @Override
+    public long[] getDocIdBpvHistogram() {
+      return forDeltaUtil.bpvHistogram;
     }
   }
 
@@ -2054,6 +2074,11 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     @Override
     public long cost() {
       return docFreq;
+    }
+
+    @Override
+    public long[] getDocIdBpvHistogram() {
+      return forDeltaUtil.bpvHistogram;
     }
   }
 

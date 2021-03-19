@@ -42,6 +42,7 @@ public class ForDeltaUtil {
   }
 
   private final ForUtil forUtil;
+  public final long[] bpvHistogram = new long[32];
 
   ForDeltaUtil(ForUtil forUtil) {
     this.forUtil = forUtil;
@@ -69,6 +70,7 @@ public class ForDeltaUtil {
   /** Decode deltas, compute the prefix sum and add {@code base} to all decoded longs. */
   void decodeAndPrefixSum(DataInput in, long base, long[] longs) throws IOException {
     final int bitsPerValue = Byte.toUnsignedInt(in.readByte());
+    bpvHistogram[bitsPerValue]++;
     if (bitsPerValue == 0) {
       prefixSumOfOnes(longs, base);
     } else {
@@ -79,6 +81,7 @@ public class ForDeltaUtil {
   /** Skip a sequence of 128 longs. */
   void skip(DataInput in) throws IOException {
     final int bitsPerValue = Byte.toUnsignedInt(in.readByte());
+    bpvHistogram[bitsPerValue]++;
     if (bitsPerValue != 0) {
       in.skipBytes(forUtil.numBytes(bitsPerValue));
     }

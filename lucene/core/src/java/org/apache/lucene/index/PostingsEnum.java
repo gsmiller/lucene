@@ -97,4 +97,8 @@ public abstract class PostingsEnum extends DocIdSetIterator {
    * anything (neither members of the returned BytesRef nor bytes in the byte[]).
    */
   public abstract BytesRef getPayload() throws IOException;
+
+  public long[] getDocIdBpvHistogram() {
+    return new long[0];
+  }
 }

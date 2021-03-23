@@ -111,13 +111,27 @@ final class PForUtil {
 
   /** Decode deltas, compute the prefix sum and add {@code base} to all decoded longs. */
   void decodeAndPrefixSum(DataInput in, long base, long[] longs) throws IOException {
-    decode(in, longs);
-    // TODO: is there any way to optimize this? ForDeltaUtil relies on ForUtil#decodeAndPrefixSum
-    //       to expand deltas in a more optimal (and tightly coupled way), but I don't think we can
-    //       leverage that because we must apply the patched exceptions before expanding deltas...
-    longs[0] += base;
-    for (int i = 1; i < ForUtil.BLOCK_SIZE; ++i) {
-      longs[i] += longs[i - 1];
+    final int token = Byte.toUnsignedInt(in.readByte());
+    final int bitsPerValue = token & 0x1f;
+    final int numExceptions = token >>> 5;
+    if (numExceptions == 0 && bitsPerValue != 0) {
+      // rely on forUtil to apply prefixes only in cases where there are no exceptions. when there
+      // are exceptions, they must be applied before the prefixes.
+      forUtil.decodeAndPrefixSum(bitsPerValue, in, base, longs);
+    } else {
+      if (bitsPerValue == 0) {
+        Arrays.fill(longs, 0, ForUtil.BLOCK_SIZE, in.readVLong());
+      } else {
+        forUtil.decode(bitsPerValue, in, longs);
+      }
+      for (int i = 0; i < numExceptions; ++i) {
+        longs[Byte.toUnsignedInt(in.readByte())] |=
+            Byte.toUnsignedLong(in.readByte()) << bitsPerValue;
+      }
+      longs[0] += base;
+      for (int i = 1; i < ForUtil.BLOCK_SIZE; ++i) {
+        longs[i] += longs[i - 1];
+      }
     }
   }
 

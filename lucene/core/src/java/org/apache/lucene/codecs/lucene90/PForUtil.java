@@ -17,6 +17,7 @@
 package org.apache.lucene.codecs.lucene90;
 
 import java.io.IOException;
+import java.lang.reflect.Array;
 import java.util.Arrays;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.DataOutput;
@@ -24,6 +25,29 @@ import org.apache.lucene.util.packed.PackedInts;
 
 /** Utility class to encode sequences of 128 small positive integers. */
 final class PForUtil {
+
+  // IDENTITY_PLUS_ONE[i] == i+1
+  private static final long[] IDENTITY_PLUS_ONE = new long[ForUtil.BLOCK_SIZE];
+
+  static {
+    for (int i = 0; i < ForUtil.BLOCK_SIZE; ++i) {
+      IDENTITY_PLUS_ONE[i] = i + 1;
+    }
+  }
+
+  private static void prefixSumOfOnes(long[] arr, long base) {
+    System.arraycopy(IDENTITY_PLUS_ONE, 0, arr, 0, ForUtil.BLOCK_SIZE);
+    // This loop gets auto-vectorized
+    for (int i = 0; i < ForUtil.BLOCK_SIZE; ++i) {
+      arr[i] += base;
+    }
+  }
+
+  private static void prefixSumOf(long val, long[] arr, long base) {
+    for (int i = 0; i < ForUtil.BLOCK_SIZE; i++) {
+      arr[i] = (i + 1) * val + base;
+    }
+  }
 
   static boolean allEqual(long[] l) {
     for (int i = 1; i < ForUtil.BLOCK_SIZE; ++i) {
@@ -114,19 +138,27 @@ final class PForUtil {
     final int token = Byte.toUnsignedInt(in.readByte());
     final int bitsPerValue = token & 0x1f;
     final int numExceptions = token >>> 5;
-    if (numExceptions == 0 && bitsPerValue != 0) {
-      // rely on forUtil to apply prefixes only in cases where there are no exceptions. when there
-      // are exceptions, they must be applied before the prefixes.
-      forUtil.decodeAndPrefixSum(bitsPerValue, in, base, longs);
-    } else {
+    if (numExceptions == 0) {
+      if (bitsPerValue == 0) {
+        long val = in.readVLong();
+        if (val == 1) {
+          prefixSumOfOnes(longs, base);
+        } else {
+          prefixSumOf(val, longs, base);
+        }
+      } else {
+        forUtil.decodeAndPrefixSum(bitsPerValue, in, base, longs);
+      }
+    } else { // we have exceptions
       if (bitsPerValue == 0) {
         Arrays.fill(longs, 0, ForUtil.BLOCK_SIZE, in.readVLong());
       } else {
         forUtil.decode(bitsPerValue, in, longs);
       }
+      // exceptions must be applied before the deltas
       for (int i = 0; i < numExceptions; ++i) {
         longs[Byte.toUnsignedInt(in.readByte())] |=
-            Byte.toUnsignedLong(in.readByte()) << bitsPerValue;
+                Byte.toUnsignedLong(in.readByte()) << bitsPerValue;
       }
       longs[0] += base;
       for (int i = 1; i < ForUtil.BLOCK_SIZE; ++i) {

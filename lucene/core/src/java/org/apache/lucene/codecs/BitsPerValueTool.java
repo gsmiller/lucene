@@ -48,7 +48,9 @@ public class BitsPerValueTool {
         long totalBits = 0;
         for (int i = 0; i < docBpvHistogram.length; i++) {
             totalBlocks += docBpvHistogram[i];
-            totalBits += docBpvHistogram[i] * i * 128;
+            if (i > 0) {
+                totalBits += i * 128 * docBpvHistogram[i];
+            }
         }
         for (int i = 0; i < docBpvHistogram.length; i++) {
             double pct = (double) docBpvHistogram[i] / (double) totalBlocks * 100D;

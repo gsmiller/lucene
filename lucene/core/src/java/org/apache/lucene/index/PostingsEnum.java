@@ -101,4 +101,8 @@ public abstract class PostingsEnum extends DocIdSetIterator {
   public long[] getDocIdBpvHistogram() {
     return new long[0];
   }
+
+  public long[] getDocIdExceptionsHistogram() {
+    return new long[0];
+  }
 }

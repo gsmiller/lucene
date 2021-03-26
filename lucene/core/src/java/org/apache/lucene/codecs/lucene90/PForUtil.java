@@ -25,6 +25,29 @@ import org.apache.lucene.util.packed.PackedInts;
 /** Utility class to encode sequences of 128 small positive integers. */
 final class PForUtil {
 
+  // IDENTITY_PLUS_ONE[i] == i+1
+  private static final long[] IDENTITY_PLUS_ONE = new long[ForUtil.BLOCK_SIZE];
+
+  static {
+    for (int i = 0; i < ForUtil.BLOCK_SIZE; ++i) {
+      IDENTITY_PLUS_ONE[i] = i + 1;
+    }
+  }
+
+  private static void prefixSumOfOnes(long[] arr, long base) {
+    System.arraycopy(IDENTITY_PLUS_ONE, 0, arr, 0, ForUtil.BLOCK_SIZE);
+    // This loop gets auto-vectorized
+    for (int i = 0; i < ForUtil.BLOCK_SIZE; ++i) {
+      arr[i] += base;
+    }
+  }
+
+  private static void prefixSumOf(long val, long[] arr, long base) {
+    for (int i = 0; i < ForUtil.BLOCK_SIZE; i++) {
+      arr[i] = (i + 1) * val + base;
+    }
+  }
+
   static boolean allEqual(long[] l) {
     for (int i = 1; i < ForUtil.BLOCK_SIZE; ++i) {
       if (l[i] != l[0]) {
@@ -36,6 +59,7 @@ final class PForUtil {
 
   private final ForUtil forUtil;
   public final long[] bpvHistogram = new long[32];
+  public final long[] exceptionsHistogram = new long[4];
 
   PForUtil(ForUtil forUtil) {
     assert ForUtil.BLOCK_SIZE <= 256 : "blocksize must fit in one byte. got " + ForUtil.BLOCK_SIZE;
@@ -100,6 +124,7 @@ final class PForUtil {
     final int bitsPerValue = token & 0x1f;
     final int numExceptions = token >>> 5;
     bpvHistogram[bitsPerValue]++;
+    exceptionsHistogram[numExceptions]++;
     if (bitsPerValue == 0) {
       Arrays.fill(longs, 0, ForUtil.BLOCK_SIZE, in.readVLong());
     } else {
@@ -113,13 +138,37 @@ final class PForUtil {
 
   /** Decode deltas, compute the prefix sum and add {@code base} to all decoded longs. */
   void decodeAndPrefixSum(DataInput in, long base, long[] longs) throws IOException {
-    decode(in, longs);
-    // TODO: is there any way to optimize this? ForDeltaUtil relies on ForUtil#decodeAndPrefixSum
-    //       to expand deltas in a more optimal (and tightly coupled way), but I don't think we can
-    //       leverage that because we must apply the patched exceptions before expanding deltas...
-    longs[0] += base;
-    for (int i = 1; i < ForUtil.BLOCK_SIZE; ++i) {
-      longs[i] += longs[i - 1];
+    final int token = Byte.toUnsignedInt(in.readByte());
+    final int bitsPerValue = token & 0x1f;
+    final int numExceptions = token >>> 5;
+    bpvHistogram[bitsPerValue]++;
+    exceptionsHistogram[numExceptions]++;
+    if (numExceptions == 0) {
+      if (bitsPerValue == 0) {
+        long val = in.readVLong();
+        if (val == 1) {
+          prefixSumOfOnes(longs, base);
+        } else {
+          prefixSumOf(val, longs, base);
+        }
+      } else {
+        forUtil.decodeAndPrefixSum(bitsPerValue, in, base, longs);
+      }
+    } else { // we have exceptions
+      if (bitsPerValue == 0) {
+        Arrays.fill(longs, 0, ForUtil.BLOCK_SIZE, in.readVLong());
+      } else {
+        forUtil.decode(bitsPerValue, in, longs);
+      }
+      // exceptions must be applied before the deltas
+      for (int i = 0; i < numExceptions; ++i) {
+        longs[Byte.toUnsignedInt(in.readByte())] |=
+                Byte.toUnsignedLong(in.readByte()) << bitsPerValue;
+      }
+      longs[0] += base;
+      for (int i = 1; i < ForUtil.BLOCK_SIZE; ++i) {
+        longs[i] += longs[i - 1];
+      }
     }
   }
 
@@ -129,6 +178,7 @@ final class PForUtil {
     final int bitsPerValue = token & 0x1f;
     final int numExceptions = token >>> 5;
     bpvHistogram[bitsPerValue]++;
+    exceptionsHistogram[numExceptions]++;
     if (bitsPerValue == 0) {
       in.readVLong();
       in.skipBytes((numExceptions << 1));

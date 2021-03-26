@@ -18,7 +18,9 @@ public class BitsPerValueTool {
 
     public static void main(String[] args) throws Exception {
         long[] docBpvHistogram = new long[32];
+        long[] docExceptionsHistogram = new long[4];
         Arrays.fill(docBpvHistogram, 0L);
+        Arrays.fill(docExceptionsHistogram, 0L);
 
         Path indexPath = Paths.get(args[0]);
         try (IndexReader reader = DirectoryReader.open(FSDirectory.open(indexPath))) {
@@ -38,6 +40,9 @@ public class BitsPerValueTool {
                         for (int i = 0; i < pe.getDocIdBpvHistogram().length; i++) {
                             docBpvHistogram[i] += pe.getDocIdBpvHistogram()[i];
                         }
+                        for (int i = 0; i < pe.getDocIdExceptionsHistogram().length; i++) {
+                            docExceptionsHistogram[i] += pe.getDocIdExceptionsHistogram()[i];
+                        }
                     }
                 }
             }
@@ -48,7 +53,14 @@ public class BitsPerValueTool {
         long totalBits = 0;
         for (int i = 0; i < docBpvHistogram.length; i++) {
             totalBlocks += docBpvHistogram[i];
-            totalBits += docBpvHistogram[i] * i * 128;
+            if (i == 0) {
+                totalBits += 8;
+            } else {
+                totalBits += i * 128 * docBpvHistogram[i];
+            }
+        }
+        for (int i = 0; i < docExceptionsHistogram.length; i++) {
+            totalBits += i * 16 * docExceptionsHistogram[i];
         }
         for (int i = 0; i < docBpvHistogram.length; i++) {
             double pct = (double) docBpvHistogram[i] / (double) totalBlocks * 100D;

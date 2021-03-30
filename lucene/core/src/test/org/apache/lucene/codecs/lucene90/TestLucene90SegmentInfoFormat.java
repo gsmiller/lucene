@@ -15,31 +15,22 @@
  * limitations under the License.
  */
 
+package org.apache.lucene.codecs.lucene90;
 
-// Exclude inner classes from testing.
-allprojects {
-  tasks.withType(Test) { task ->
-    exclude '**/*$*'
+import org.apache.lucene.codecs.Codec;
+import org.apache.lucene.index.BaseSegmentInfoFormatTestCase;
+import org.apache.lucene.util.TestUtil;
+import org.apache.lucene.util.Version;
+
+public class TestLucene90SegmentInfoFormat extends BaseSegmentInfoFormatTestCase {
+
+  @Override
+  protected Version[] getVersions() {
+    return new Version[] {Version.LATEST};
   }
-}
 
-// Exclude test classes that are not actually stand-alone tests (they're executed from other stuff).
-configure(project(":lucene:replicator")) {
-  plugins.withType(JavaPlugin) {
-    test {
-      exclude "**/SimpleServer*"
-    }
-  }
-}
-
-
-// Resources from top-level project folder are looked up via getClass(). Strange.
-configure(project(":lucene:benchmark")) {
-  plugins.withType(JavaPlugin) {
-    task syncConf(type: Sync) {
-      from('conf')
-      into file("${sourceSets.test.java.outputDir}/conf")
-    }
-    processTestResources.dependsOn syncConf
+  @Override
+  protected Codec getCodec() {
+    return TestUtil.getDefaultCodec();
   }
 }

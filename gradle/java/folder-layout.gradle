@@ -13,39 +13,40 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- */ 
+ */
 
-// See LUCENE-9471. We redirect temporary location for gradle
-// so that it doesn't pollute user's tmp. Wipe it during a clean though.
-
-configure(rootProject) {
-  task cleanGradleTmp(type: Delete) {
-    delete fileTree(".gradle/tmp").matching {
-      include "gradle-worker-classpath*"
-    }
-  }
-
-  clean.dependsOn cleanGradleTmp
-}
-
-// Make sure we clean up after running tests.
+// Adapt to custom, legacy folder convention.
 allprojects {
   plugins.withType(JavaPlugin) {
-    def temps = []
+    sourceSets {
+      main.java.srcDirs = ['src/java']
+      main.resources.srcDirs = ['src/resources']
+      test.java.srcDirs = ['src/test']
+      test.resources.srcDirs = ['src/test-files']
+    }
 
-    task cleanTaskTmp() {
-      doLast {
-        temps.each { temp ->
-          project.delete fileTree(temp).matching {
-            include "jar_extract*"
+    task copyTestResources(type: Copy) {
+      from('src/test') {
+        exclude '**/*.java'
+      }
+      into sourceSets.test.java.outputDir
+    }
+    processTestResources.dependsOn copyTestResources
+
+    // if 'src/tools' exists, add it as a separate sourceSet.
+    if (file('src/tools/java').exists()) {
+      sourceSets {
+        tools {
+          java {
+            srcDirs = ['src/tools/java']
           }
         }
       }
-    }
 
-    tasks.withType(Test) {
-      finalizedBy rootProject.cleanGradleTmp, cleanTaskTmp
-      temps += temporaryDir
+      configurations {
+        // Inherit any dependencies from the main source set.
+        toolsImplementation.extendsFrom implementation
+      }
     }
   }
 }

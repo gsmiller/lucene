@@ -513,6 +513,105 @@ final class ForUtil {
     }
   }
 
+  /**
+   * decodes two values into each long so that prefixes can be applied two-at-a-time
+   */
+  void decodeTo32(int bitsPerValue, DataInput in, long[] longs) throws IOException {
+    switch (bitsPerValue) {
+      case 1:
+        decode1(in, tmp, longs);
+        expand8To32(longs);
+        break;
+      case 2:
+        decode2(in, tmp, longs);
+        expand8To32(longs);
+        break;
+      case 3:
+        decode3(in, tmp, longs);
+        expand8To32(longs);
+        break;
+      case 4:
+        decode4(in, tmp, longs);
+        expand8To32(longs);
+        break;
+      case 5:
+        decode5(in, tmp, longs);
+        expand8To32(longs);
+        break;
+      case 6:
+        decode6(in, tmp, longs);
+        expand8To32(longs);
+        break;
+      case 7:
+        decode7(in, tmp, longs);
+        expand8To32(longs);
+        break;
+      case 8:
+        decode8(in, tmp, longs);
+        expand8To32(longs);
+        break;
+      case 9:
+        decode9(in, tmp, longs);
+        expand16To32(longs);
+        break;
+      case 10:
+        decode10(in, tmp, longs);
+        expand16To32(longs);
+        break;
+      case 11:
+        decode11(in, tmp, longs);
+        expand16To32(longs);
+        break;
+      case 12:
+        decode12(in, tmp, longs);
+        expand16To32(longs);
+        break;
+      case 13:
+        decode13(in, tmp, longs);
+        expand16To32(longs);
+        break;
+      case 14:
+        decode14(in, tmp, longs);
+        expand16To32(longs);
+        break;
+      case 15:
+        decode15(in, tmp, longs);
+        expand16To32(longs);
+        break;
+      case 16:
+        decode16(in, tmp, longs);
+        expand16To32(longs);
+        break;
+      case 17:
+        decode17(in, tmp, longs);
+        break;
+      case 18:
+        decode18(in, tmp, longs);
+        break;
+      case 19:
+        decode19(in, tmp, longs);
+        break;
+      case 20:
+        decode20(in, tmp, longs);
+        break;
+      case 21:
+        decode21(in, tmp, longs);
+        break;
+      case 22:
+        decode22(in, tmp, longs);
+        break;
+      case 23:
+        decode23(in, tmp, longs);
+        break;
+      case 24:
+        decode24(in, tmp, longs);
+        break;
+      default:
+        decodeSlow(bitsPerValue, in, tmp, longs);
+        break;
+    }
+  }
+
   /** Delta-decode 128 integers into {@code longs}. */
   void decodeAndPrefixSum(int bitsPerValue, DataInput in, long base, long[] longs)
       throws IOException {

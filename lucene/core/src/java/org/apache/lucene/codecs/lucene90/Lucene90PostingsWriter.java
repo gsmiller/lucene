@@ -91,7 +91,7 @@ public final class Lucene90PostingsWriter extends PushPostingsWriterBase {
   private int docCount;
 
   private final PForUtil pforUtil;
-  private final Lucene90SkipWriter skipWriter;
+  private final Lucene90FlatSkipWriter skipWriter;
 
   private boolean fieldHasNorms;
   private NumericDocValues norms;
@@ -176,7 +176,7 @@ public final class Lucene90PostingsWriter extends PushPostingsWriterBase {
 
     // TODO: should we try skipping every 2/4 blocks...?
     skipWriter =
-        new Lucene90SkipWriter(
+        new Lucene90FlatSkipWriter(
             MAX_SKIP_LEVELS, BLOCK_SIZE, state.segmentInfo.maxDoc(), docOut, posOut, payOut);
   }
 

@@ -1054,7 +1054,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
 
     private int docBufferUpto;
 
-    private final Lucene90ScoreSkipReader skipper;
+    private final Lucene90FlatSkipReader skipper;
 
     final IndexInput docIn;
 
@@ -1097,7 +1097,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       docBufferUpto = BLOCK_SIZE;
 
       skipper =
-          new Lucene90ScoreSkipReader(
+          new Lucene90FlatSkipReader(
               docIn.clone(), MAX_SKIP_LEVELS, indexHasPositions, indexHasOffsets, indexHasPayloads);
       skipper.init(
           termState.docStartFP + termState.skipOffset,
@@ -1249,7 +1249,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     private int docBufferUpto;
     private int posBufferUpto;
 
-    private final Lucene90ScoreSkipReader skipper;
+    private final Lucene90FlatSkipReader skipper;
 
     final IndexInput docIn;
     final IndexInput posIn;
@@ -1327,7 +1327,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       docBufferUpto = BLOCK_SIZE;
 
       skipper =
-          new Lucene90ScoreSkipReader(
+          new Lucene90FlatSkipReader(
               docIn.clone(), MAX_SKIP_LEVELS, true, indexHasOffsets, indexHasPayloads);
       skipper.init(
           docTermStartFP + termState.skipOffset,
@@ -1553,7 +1553,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     private int docBufferUpto;
     private int posBufferUpto;
 
-    private final Lucene90ScoreSkipReader skipper;
+    private final Lucene90FlatSkipReader skipper;
 
     final IndexInput docIn;
     final IndexInput posIn;
@@ -1686,7 +1686,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       docBufferUpto = BLOCK_SIZE;
 
       skipper =
-          new Lucene90ScoreSkipReader(
+          new Lucene90FlatSkipReader(
               docIn.clone(), MAX_SKIP_LEVELS, indexHasPos, indexHasOffsets, indexHasPayloads);
       skipper.init(
           docTermStartFP + termState.skipOffset,

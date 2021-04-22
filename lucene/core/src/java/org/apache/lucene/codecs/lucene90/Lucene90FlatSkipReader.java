@@ -1,10 +1,16 @@
 package org.apache.lucene.codecs.lucene90;
 
+import org.apache.lucene.index.Impact;
+import org.apache.lucene.index.Impacts;
 import org.apache.lucene.store.IndexInput;
 
+import java.io.Closeable;
 import java.io.IOException;
+import java.util.AbstractList;
+import java.util.List;
+import java.util.RandomAccess;
 
-final class Lucene90FlatSkipReader {
+final class Lucene90FlatSkipReader implements Closeable {
     private final IndexInput skipStream;
 
     private final boolean hasPos;
@@ -15,12 +21,21 @@ final class Lucene90FlatSkipReader {
     private int blockCount;
 
     private int nextDoc;
+    private long nextDocPointer;
+    private long nextPosPointer;
+    private int nextPosBufferUpto;
+    private int nextPayloadByteUpto;
+    private long nextPayloadPointer;
+
     private int lastDoc;
-    private long docPointer;
-    private long posPointer;
-    private int posBufferUpto;
-    private int payloadByteUpto;
-    private long payPointer;
+    private long lastDocPointer;
+    private long lastPosPointer;
+    private int lastPosBufferUpto;
+    private int lastPayloadByteUpto;
+    private long lastPayloadPointer;
+
+    private final Impacts impacts;
+    private final MutableImpactList dummyImpactsList;
 
     public Lucene90FlatSkipReader(
             IndexInput skipStream, int maxSkipLevels,
@@ -29,44 +44,93 @@ final class Lucene90FlatSkipReader {
         this.hasPos = hasPos;
         this.hasPay = hasPayloads;
         this.hasOffsets = hasOffsets;
+
+        dummyImpactsList = new MutableImpactList();
+        impacts =
+                new Impacts() {
+
+                    @Override
+                    public int numLevels() {
+                        return 1;
+                    }
+
+                    @Override
+                    public int getDocIdUpTo(int level) {
+                        return nextDoc;
+                    }
+
+                    @Override
+                    public List<Impact> getImpacts(int level) {
+                        return dummyImpactsList;
+                    }
+                };
     }
 
     public void init(long skipPointer, long docBasePointer, long posBasePointer, long payBasePointer, int df) throws IOException {
         skipStream.seek(skipPointer);
-        docPointer = docBasePointer;
-        posPointer = posBasePointer;
-        payPointer = payBasePointer;
+        nextDocPointer = docBasePointer;
+        nextPosPointer = posBasePointer;
+        nextPayloadPointer = payBasePointer;
         blockCount = df / ForUtil.BLOCK_SIZE;
         upto = 0;
+        nextDoc = 0;
+        lastDoc = 0;
     }
 
     public int skipTo(int target) throws IOException {
+        if (nextDoc == Integer.MAX_VALUE) {
+            return blockCount * ForUtil.BLOCK_SIZE - 1;
+        }
+
         for ( ; upto < blockCount; ++upto) {
             if (target <= nextDoc) {
                 break;
             }
+            saveLast();
             readSkipData();
         }
 
-        return (upto * ForUtil.BLOCK_SIZE) - ForUtil.BLOCK_SIZE;
+        if (target > nextDoc) {
+            saveLast();
+            nextDoc = Integer.MAX_VALUE;
+            return blockCount * ForUtil.BLOCK_SIZE - 1;
+        }
+
+        return upto * ForUtil.BLOCK_SIZE - ForUtil.BLOCK_SIZE - 1;
     }
 
     private void readSkipData() throws IOException {
-        lastDoc = nextDoc;
-
         nextDoc = skipStream.readInt();
-        docPointer = skipStream.readLong();
+        nextDocPointer = skipStream.readLong();
 
         if (hasPos) {
-            posPointer = skipStream.readLong();
-            posBufferUpto = skipStream.readInt();
+            nextPosPointer = skipStream.readLong();
+            nextPosBufferUpto = skipStream.readInt();
 
             if (hasPay) {
-                payloadByteUpto = skipStream.readInt();
+                nextPayloadByteUpto = skipStream.readInt();
             }
 
             if (hasPay || hasOffsets) {
-                payPointer = skipStream.readLong();
+                nextPayloadPointer = skipStream.readLong();
+            }
+        }
+    }
+
+    private void saveLast() {
+        lastDoc = nextDoc;
+        lastDocPointer = nextDocPointer;
+
+        if (hasPos) {
+            lastPosPointer = nextPosPointer;
+            lastPosBufferUpto = nextPosBufferUpto;
+
+            if (hasPay) {
+                lastPayloadByteUpto = nextPayloadByteUpto;
+            }
+
+            if (hasPay || hasOffsets) {
+                lastPayloadPointer = nextPayloadPointer;
             }
         }
     }
@@ -76,26 +140,52 @@ final class Lucene90FlatSkipReader {
     }
 
     public long getDocPointer() {
-        return docPointer;
+        return lastDocPointer;
     }
 
     public long getPosPointer() {
-        return posPointer;
+        return lastPosPointer;
     }
 
     public int getPosBufferUpto() {
-        return posBufferUpto;
+        return lastPosBufferUpto;
     }
 
     public long getPayPointer() {
-        return payPointer;
+        return lastPayloadPointer;
     }
 
     public int getPayloadByteUpto() {
-        return payloadByteUpto;
+        return lastPayloadByteUpto;
     }
 
     public int getNextSkipDoc() {
         return nextDoc;
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (skipStream != null) {
+            skipStream.close();
+        }
+    }
+
+    Impacts getImpacts() {
+        return impacts;
+    }
+
+    private static class MutableImpactList extends AbstractList<Impact> implements RandomAccess {
+        int length = 1;
+        Impact[] impacts = new Impact[] {new Impact(Integer.MAX_VALUE, 1L)};
+
+        @Override
+        public Impact get(int index) {
+            return impacts[index];
+        }
+
+        @Override
+        public int size() {
+            return length;
+        }
     }
 }

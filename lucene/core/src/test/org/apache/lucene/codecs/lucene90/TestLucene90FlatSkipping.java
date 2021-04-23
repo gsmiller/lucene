@@ -1,5 +1,6 @@
 package org.apache.lucene.codecs.lucene90;
 
+import com.carrotsearch.randomizedtesting.generators.RandomNumbers;
 import org.apache.lucene.codecs.CompetitiveImpactAccumulator;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
@@ -7,12 +8,158 @@ import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.util.packed.PackedInts;
+import org.junit.Assert;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 
 public class TestLucene90FlatSkipping extends LuceneTestCase {
 
-    public void testWriteThenRead() throws Exception {
+    public void testOldVsNew() throws IOException {
+        Random random = random();
+        CompetitiveImpactAccumulator dummyAccum = new CompetitiveImpactAccumulator();
+        byte[] buff = new byte[1000];
+        random.nextBytes(buff);
+
+        final Directory d = new ByteBuffersDirectory();
+        IndexOutput outOld = d.createOutput("test_old.bin", IOContext.DEFAULT);
+        IndexOutput outNew = d.createOutput("test_new.bin", IOContext.DEFAULT);
+
+        Lucene90SkipWriter oldWriter =
+                new Lucene90SkipWriter(1, ForUtil.BLOCK_SIZE, Integer.MAX_VALUE, outOld, null, null);
+        Lucene90FlatSkipWriter newWriter =
+                new Lucene90FlatSkipWriter(1, ForUtil.BLOCK_SIZE, Integer.MAX_VALUE, outNew, null, null);
+
+        int postingsCount = RandomNumbers.randomIntBetween(random, 10, 100);
+        List<Long> postingStartPositionsOld = new ArrayList<>();
+        List<Long> postingStartPositionsNew = new ArrayList<>();
+        List<Integer> postingDocCounts = new ArrayList<>();
+        List<List<Long>> expectedBlockPositionsOld = new ArrayList<>();
+        List<List<Long>> expectedBlockPositionsNew = new ArrayList<>();
+        List<List<Integer>> expectedLastReadDocIds = new ArrayList<>();
+        List<List<Integer>> expectedNextSkipDocIds = new ArrayList<>();
+        List<Long> skipStartPositionsOld = new ArrayList<>();
+        List<Long> skipStartPositionsNew = new ArrayList<>();
+        for (int i = 0; i < postingsCount; i++) {
+            int numBlocks = RandomNumbers.randomIntBetween(random, 1, 10);
+            if (random.nextInt(100) < 20) {
+                numBlocks = 0;
+            }
+            int numExtra = random.nextInt(ForUtil.BLOCK_SIZE);
+            if (numBlocks > 0 && random.nextInt(100) < 20) {
+                numExtra = 0;
+            }
+            int docCount = numBlocks * ForUtil.BLOCK_SIZE + numExtra;
+            postingDocCounts.add(docCount);
+            int maxBitsPerValue = (int) Math.floor(31D - (Math.log(docCount)));
+            int maxDocDelta = (int) PackedInts.maxValue(maxBitsPerValue - 1);
+            maxDocDelta = 100; // TODO shouldn't need this
+
+            oldWriter.setField(false, false, false);
+            newWriter.setField(false, false, false);
+            oldWriter.resetSkip();
+            newWriter.resetSkip();
+
+            postingStartPositionsOld.add(outOld.getFilePointer());
+            postingStartPositionsNew.add(outNew.getFilePointer());
+            List<Long> blockPositionsOld = new ArrayList<>();
+            List<Long> blockPositionsNew = new ArrayList<>();
+            List<Integer> lastReadDocIds = new ArrayList<>();
+            List<Integer> nextDocIds = new ArrayList<>();
+            int docId = 0;
+            lastReadDocIds.add(0);  // TODO why not -1?
+            blockPositionsOld.add(outOld.getFilePointer());
+            blockPositionsNew.add(outNew.getFilePointer());
+            for (int j = 0; j < docCount; j++) {
+                docId += random.nextInt(maxDocDelta);
+                if (j % ForUtil.BLOCK_SIZE == 0 && j != 0) {
+                    int blockBytes = random.nextInt(buff.length + 1);
+                    outOld.writeBytes(buff, blockBytes);
+                    outNew.writeBytes(buff, blockBytes);
+                    blockPositionsOld.add(outOld.getFilePointer());
+                    blockPositionsNew.add(outNew.getFilePointer());
+                    lastReadDocIds.add(docId);
+                    nextDocIds.add(docId);
+
+                    oldWriter.bufferSkip(docId, dummyAccum, j, 0, 0, 0, 0);
+                    newWriter.bufferSkip(docId, dummyAccum, j, 0, 0, 0, 0);
+                }
+            }
+            nextDocIds.add(Integer.MAX_VALUE);
+            expectedBlockPositionsOld.add(blockPositionsOld);
+            expectedBlockPositionsNew.add(blockPositionsNew);
+            expectedLastReadDocIds.add(lastReadDocIds);
+            expectedNextSkipDocIds.add(nextDocIds);
+            skipStartPositionsOld.add(oldWriter.writeSkip(outOld));
+            skipStartPositionsNew.add(newWriter.writeSkip(outNew));
+        }
+        outOld.close();
+        outNew.close();
+
+        IndexInput inOld = d.openInput("test_old.bin", IOContext.READONCE);
+        IndexInput inNew = d.openInput("test_new.bin", IOContext.READONCE);
+
+        Lucene90SkipReader oldReader =
+                new Lucene90SkipReader(inOld, 1, false, false, false);
+        Lucene90FlatSkipReader newReader =
+                new Lucene90FlatSkipReader(inNew, 1, false, false, false);
+        for (int i = 0; i < postingsCount; i++) {
+            long basePosOld = postingStartPositionsOld.get(i);
+            long basePosNew = postingStartPositionsNew.get(i);
+            long skipPosOld = skipStartPositionsOld.get(i);
+            long skipPosNew = skipStartPositionsNew.get(i);
+            int docCount = postingDocCounts.get(i);
+            List<Long> blockPositionsOld = expectedBlockPositionsOld.get(i);
+            List<Long> blockPositionsNew = expectedBlockPositionsNew.get(i);
+            List<Integer> lastReadDocIds = expectedLastReadDocIds.get(i);
+            List<Integer> nextDocIds = expectedNextSkipDocIds.get(i);
+            Assert.assertEquals(blockPositionsOld.size(), blockPositionsNew.size());
+            int blockCount = blockPositionsOld.size();
+
+            oldReader.init(skipPosOld, basePosOld, 0, 0, docCount);
+            newReader.init(skipPosNew, basePosNew, 0, 0, docCount);
+
+            for (int j = 0; j < blockCount; j++) {
+                if (random.nextInt(100) < 50) {
+                    continue;
+                }
+
+                int docLow = lastReadDocIds.get(j) + 1;
+                int docHigh = nextDocIds.get(j);
+                int skipTo = RandomNumbers.randomIntBetween(random, docLow, docHigh);
+
+                int oldUpto = oldReader.skipTo(skipTo);
+                int newUpto = newReader.skipTo(skipTo);
+                Assert.assertEquals(oldUpto, newUpto);
+                Assert.assertEquals(j * ForUtil.BLOCK_SIZE - 1, newUpto);
+
+                int oldDoc = oldReader.getDoc();
+                int newDoc = newReader.getDoc();
+                Assert.assertEquals(oldDoc, newDoc);
+                Assert.assertEquals((int) lastReadDocIds.get(j), newDoc);
+
+                long oldDocPtr = oldReader.getDocPointer();
+                long newDocPtr = newReader.getDocPointer();
+                Assert.assertEquals(oldDocPtr - basePosOld, newDocPtr - basePosNew);
+                Assert.assertEquals((long) blockPositionsOld.get(j), oldDocPtr);
+                Assert.assertEquals((long) blockPositionsNew.get(j), newDocPtr);
+
+                int oldNextDoc = oldReader.getNextSkipDoc();
+                int newNextDoc = newReader.getNextSkipDoc();
+                Assert.assertEquals(oldNextDoc, newNextDoc);
+                Assert.assertEquals((int) nextDocIds.get(j), newNextDoc);
+            }
+        }
+        oldReader.close();
+        newReader.close();
+
+        d.close();
+    }
+
+    public void testWriteThenRead() throws IOException {
         int df = 10 * 128 + 10;
         CompetitiveImpactAccumulator dummyAccum = new CompetitiveImpactAccumulator();
 

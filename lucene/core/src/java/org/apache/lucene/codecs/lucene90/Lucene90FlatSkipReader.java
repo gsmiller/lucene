@@ -17,16 +17,13 @@ final class Lucene90FlatSkipReader implements Closeable {
     private final boolean hasPay;
     private final boolean hasOffsets;
 
-    private int upto;
-    private int blockCount;
+    private int nextEntryIdx;
+    private long skipBase;
+    private int skipEntryCount;
+    private long entrySize;
+    private int docCount;
 
     private int nextDoc;
-    private long nextDocPointer;
-    private long nextPosPointer;
-    private int nextPosBufferUpto;
-    private int nextPayloadByteUpto;
-    private long nextPayloadPointer;
-
     private int lastDoc;
     private long lastDocPointer;
     private long lastPosPointer;
@@ -44,6 +41,7 @@ final class Lucene90FlatSkipReader implements Closeable {
         this.hasPos = hasPos;
         this.hasPay = hasPayloads;
         this.hasOffsets = hasOffsets;
+        entrySize = entrySize();
 
         dummyImpactsList = new MutableImpactList();
         impacts =
@@ -67,72 +65,104 @@ final class Lucene90FlatSkipReader implements Closeable {
     }
 
     public void init(long skipPointer, long docBasePointer, long posBasePointer, long payBasePointer, int df) throws IOException {
-        skipStream.seek(skipPointer);
-        nextDocPointer = docBasePointer;
-        nextPosPointer = posBasePointer;
-        nextPayloadPointer = payBasePointer;
-        blockCount = df / ForUtil.BLOCK_SIZE;
-        upto = 0;
-        nextDoc = 0;
+        skipBase = skipPointer;
+        skipEntryCount = df / ForUtil.BLOCK_SIZE - 1;
+        if (df % ForUtil.BLOCK_SIZE > 0) {
+            skipEntryCount++;
+        }
+        docCount = df;
+        nextEntryIdx = 0;
+        nextDoc = -1;
         lastDoc = 0;
+        lastDocPointer = docBasePointer;
+        lastPosPointer = posBasePointer;
+        lastPayloadPointer = payBasePointer;
     }
 
     public int skipTo(int target) throws IOException {
-        if (nextDoc == Integer.MAX_VALUE) {
-            return blockCount * ForUtil.BLOCK_SIZE - 1;
+        if (nextDoc == -1) {
+            if (skipEntryCount == 0) {
+                nextDoc = Integer.MAX_VALUE;
+            } else {
+                nextDoc = readSkipDocOnly(nextEntryIdx);
+            }
         }
 
-        for ( ; upto < blockCount; ++upto) {
-            if (target <= nextDoc) {
-                break;
-            }
-            saveLast();
-            readSkipData();
+        if (skipEntryCount == 0) {
+            return -1;
+        }
+
+        if (nextDoc == Integer.MAX_VALUE) {
+            return skipEntryCount * ForUtil.BLOCK_SIZE - 1;
         }
 
         if (target > nextDoc) {
-            saveLast();
-            nextDoc = Integer.MAX_VALUE;
-            return blockCount * ForUtil.BLOCK_SIZE - 1;
+            nextEntryIdx = seekToBlock(target);
+            nextDoc = readSkipDocOnly(nextEntryIdx);
+            if (target > nextDoc) {
+                loadSkipData(nextEntryIdx);
+                nextDoc = Integer.MAX_VALUE;
+                return skipEntryCount * ForUtil.BLOCK_SIZE - 1;
+            } else {
+                loadSkipData(nextEntryIdx - 1);
+            }
         }
 
-        return upto * ForUtil.BLOCK_SIZE - ForUtil.BLOCK_SIZE - 1;
+        return nextEntryIdx * ForUtil.BLOCK_SIZE - 1;
     }
 
-    private void readSkipData() throws IOException {
-        nextDoc = skipStream.readInt();
-        nextDocPointer = skipStream.readLong();
+    private int seekToBlock(int target) throws IOException {
+        int low = nextEntryIdx, high = skipEntryCount - 1;
+        while (low < high) {
+            int mid = (low + high) >>> 1;
+            int test = readSkipDocOnly(mid);
+            if (target > test) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        return high;
+    }
+
+    private int readSkipDocOnly(int entryIdx) throws IOException {
+        skipStream.seek(skipBase + entryIdx * entrySize);
+        return skipStream.readInt();
+    }
+
+    private void loadSkipData(int entryIdx) throws IOException {
+        skipStream.seek(skipBase + entryIdx * entrySize);
+
+        lastDoc = skipStream.readInt();
+        lastDocPointer = skipStream.readLong();
 
         if (hasPos) {
-            nextPosPointer = skipStream.readLong();
-            nextPosBufferUpto = skipStream.readInt();
+            lastPosPointer = skipStream.readLong();
+            lastPosBufferUpto = skipStream.readInt();
 
             if (hasPay) {
-                nextPayloadByteUpto = skipStream.readInt();
+                lastPayloadByteUpto = skipStream.readInt();
             }
 
             if (hasPay || hasOffsets) {
-                nextPayloadPointer = skipStream.readLong();
+                lastPayloadPointer = skipStream.readLong();
             }
         }
     }
 
-    private void saveLast() {
-        lastDoc = nextDoc;
-        lastDocPointer = nextDocPointer;
-
+    private long entrySize() {
+        long size = 12;
         if (hasPos) {
-            lastPosPointer = nextPosPointer;
-            lastPosBufferUpto = nextPosBufferUpto;
-
+            size += 12;
             if (hasPay) {
-                lastPayloadByteUpto = nextPayloadByteUpto;
+                size += 4;
             }
-
             if (hasPay || hasOffsets) {
-                lastPayloadPointer = nextPayloadPointer;
+                size += 8;
             }
         }
+
+        return size;
     }
 
     public int getDoc() {

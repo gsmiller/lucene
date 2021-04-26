@@ -11,7 +11,6 @@ class Lucene90FlatSkipReader implements Closeable {
     protected long skipLength;
     protected final long entrySize;
     private int skipEntryCount;
-    private int docCount;
 
     private final boolean hasPos;
     private final boolean hasPay;
@@ -43,12 +42,7 @@ class Lucene90FlatSkipReader implements Closeable {
         if (df % ForUtil.BLOCK_SIZE > 0) {
             skipEntryCount++;
         }
-        if (skipEntryCount > 0) {
-            skipStream.seek(skipPointer);
-            skipLength = skipStream.readVLong();
-        }
-        skipBase = skipStream.getFilePointer();
-        docCount = df;
+        skipBase = skipPointer;
         nextEntryIdx = 0;
         nextDoc = -1;
         lastDoc = 0;
@@ -58,10 +52,14 @@ class Lucene90FlatSkipReader implements Closeable {
     }
 
     public int skipTo(int target) throws IOException {
+        // lazy initialize if this is the first skipTo since being reset
         if (nextDoc == -1) {
             if (skipEntryCount == 0) {
                 nextDoc = Integer.MAX_VALUE;
             } else {
+                skipStream.seek(skipBase);
+                skipLength = skipStream.readVLong();
+                skipBase = skipStream.getFilePointer();
                 nextDoc = readSkipDocOnly(0);
             }
         }
@@ -145,7 +143,6 @@ class Lucene90FlatSkipReader implements Closeable {
                 size += 8;
             }
         }
-
         return size;
     }
 

@@ -11,7 +11,7 @@ import java.util.AbstractList;
 import java.util.List;
 import java.util.RandomAccess;
 
-final class Lucene90FlatSkipScoreReader extends Lucene90FlatSkipReader {
+final class Lucene90FlatScoreSkipReader extends Lucene90FlatSkipReader {
 
     private int lastImpactsSize;
 
@@ -20,7 +20,7 @@ final class Lucene90FlatSkipScoreReader extends Lucene90FlatSkipReader {
     private final ByteArrayDataInput impactsBadi = new ByteArrayDataInput();
     private final MutableImpactList impactsList;
 
-    public Lucene90FlatSkipScoreReader(IndexInput skipStream, int maxSkipLevels, boolean hasPos, boolean hasOffsets, boolean hasPayloads) {
+    public Lucene90FlatScoreSkipReader(IndexInput skipStream, int maxSkipLevels, boolean hasPos, boolean hasOffsets, boolean hasPayloads) {
         super(skipStream, maxSkipLevels, hasPos, hasOffsets, hasPayloads);
         impactsList = new MutableImpactList();
         impacts =

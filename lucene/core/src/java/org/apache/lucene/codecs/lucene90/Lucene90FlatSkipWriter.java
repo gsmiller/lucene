@@ -32,6 +32,7 @@ final class Lucene90FlatSkipWriter {
 
     public void resetSkip() {
         skipBuffer.reset();
+        freqNormOut.reset();
     }
 
     /**
@@ -55,12 +56,13 @@ final class Lucene90FlatSkipWriter {
             }
         }
 
-//        assert competitiveFreqNorms.getCompetitiveFreqNormPairs().size() > 0;
-//        writeImpacts(competitiveFreqNorms, freqNormOut);
-//        skipBuffer.writeVInt(Math.toIntExact(freqNormOut.size()));
-//        freqNormOut.copyTo(skipBuffer);
-//        freqNormOut.reset();
-//        competitiveFreqNorms.clear();
+        assert competitiveFreqNorms.getCompetitiveFreqNormPairs().size() > 0;
+        long oldSize = freqNormOut.size();
+        writeImpacts(competitiveFreqNorms, freqNormOut);
+        long newSize = freqNormOut.size();
+        skipBuffer.writeLong(oldSize);
+        skipBuffer.writeInt((int) (newSize - oldSize));
+        competitiveFreqNorms.clear();
     }
 
     /**
@@ -74,7 +76,12 @@ final class Lucene90FlatSkipWriter {
         if (skipBuffer == null) return skipPointer;
         long length = skipBuffer.size();
         if (length > 0) {
+            output.writeVLong(length);
             skipBuffer.copyTo(output);
+        }
+        long impactsLength = freqNormOut.size();
+        if (impactsLength > 0) {
+            freqNormOut.copyTo(output);
         }
 
         return skipPointer;

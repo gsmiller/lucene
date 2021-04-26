@@ -18,6 +18,7 @@ import java.util.Random;
 
 public class TestLucene90FlatSkipping extends LuceneTestCase {
 
+    /*
     public void testOldVsNew() throws IOException {
         Random random = random();
         CompetitiveImpactAccumulator dummyAccum = new CompetitiveImpactAccumulator();
@@ -199,4 +200,5 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
 
         d.close();
     }
+     */
 }

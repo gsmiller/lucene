@@ -8,6 +8,7 @@ import org.apache.lucene.util.ArrayUtil;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.AbstractList;
 import java.util.List;
 import java.util.RandomAccess;
@@ -68,8 +69,18 @@ final class Lucene90FlatSkipReader implements Closeable {
                     public List<Impact> getImpacts(int level) {
                         assert level == 0;
                         if (lastImpactsSize > 0) {
-                            processImpacts();
-                            lastImpactsSize = 0;
+                            if (impactsData.length < lastImpactsSize) {
+                                impactsData = new byte[ArrayUtil.oversize(lastImpactsSize, Byte.BYTES)];
+                            }
+                            try {
+                                skipStream.seek(lastImpactsPointer);
+                                skipStream.readBytes(impactsData, 0, lastImpactsSize);
+                                impactsBadi.reset(impactsData, 0, lastImpactsSize);
+                                lastImpactsSize = 0;
+                                processImpacts();
+                            } catch (IOException ioe) {
+                                throw new UncheckedIOException(ioe);
+                            }
                         }
                         return impactsList;
                     }
@@ -179,17 +190,6 @@ final class Lucene90FlatSkipReader implements Closeable {
         lastImpactsPointer = skipBase + skipLength + skipOffset;
         lastImpactsSize = skipStream.readInt();
         assert lastImpactsSize > 0;
-
-        if (impactsData.length < lastImpactsSize) {
-            impactsData = new byte[ArrayUtil.oversize(lastImpactsSize, Byte.BYTES)];
-        }
-        try {
-            skipStream.seek(lastImpactsPointer);
-        } catch (IOException ioe) {
-            throw new RuntimeException(String.format("pos: %d, len: %d%n, entryCount: %d, entrySize: %d, skipBase: %d, skipLen: %d, skipOff: %d", lastImpactsPointer, skipStream.length(), skipEntryCount, entrySize, skipBase, skipLength, skipOffset), ioe);
-        }
-        skipStream.readBytes(impactsData, 0, lastImpactsSize);
-        impactsBadi.reset(impactsData, 0, lastImpactsSize);
     }
 
     private long entrySize() {

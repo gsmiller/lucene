@@ -2,6 +2,8 @@ package org.apache.lucene.codecs.lucene90;
 
 import com.carrotsearch.randomizedtesting.generators.RandomNumbers;
 import org.apache.lucene.codecs.CompetitiveImpactAccumulator;
+import org.apache.lucene.index.Impact;
+import org.apache.lucene.index.Impacts;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
@@ -13,15 +15,15 @@ import org.junit.Assert;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Random;
 
 public class TestLucene90FlatSkipping extends LuceneTestCase {
 
-    /*
     public void testOldVsNew() throws IOException {
         Random random = random();
-        CompetitiveImpactAccumulator dummyAccum = new CompetitiveImpactAccumulator();
+        CompetitiveImpactAccumulator accum = new CompetitiveImpactAccumulator();
         byte[] buff = new byte[1000];
         random.nextBytes(buff);
 
@@ -44,6 +46,7 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
         List<List<Integer>> expectedNextSkipDocIds = new ArrayList<>();
         List<Long> skipStartPositionsOld = new ArrayList<>();
         List<Long> skipStartPositionsNew = new ArrayList<>();
+        List<List<Collection<Impact>>> expectedImpacts = new ArrayList<>();
         for (int i = 0; i < postingsCount; i++) {
             int numBlocks = RandomNumbers.randomIntBetween(random, 1, 10);
             if (random.nextInt(100) < 20) {
@@ -70,12 +73,16 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
             List<Long> blockPositionsNew = new ArrayList<>();
             List<Integer> lastReadDocIds = new ArrayList<>();
             List<Integer> nextDocIds = new ArrayList<>();
+            List<Collection<Impact>> impacts = new ArrayList<>();
             int docId = 0;
             lastReadDocIds.add(0);  // TODO why not -1?
             blockPositionsOld.add(outOld.getFilePointer());
             blockPositionsNew.add(outNew.getFilePointer());
             for (int j = 0; j < docCount; j++) {
                 docId += random.nextInt(maxDocDelta);
+                int freq = RandomNumbers.randomIntBetween(random, 1, 1000);
+                long norm = RandomNumbers.randomLongBetween(random, 1, 100);
+                accum.add(freq, norm);
                 if (j % ForUtil.BLOCK_SIZE == 0 && j != 0) {
                     int blockBytes = random.nextInt(buff.length + 1);
                     outOld.writeBytes(buff, blockBytes);
@@ -85,8 +92,10 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
                     lastReadDocIds.add(docId);
                     nextDocIds.add(docId);
 
-                    oldWriter.bufferSkip(docId, dummyAccum, j, 0, 0, 0, 0);
-                    newWriter.bufferSkip(docId, dummyAccum, j, 0, 0, 0, 0);
+                    oldWriter.bufferSkip(docId, accum, j, 0, 0, 0, 0);
+                    newWriter.bufferSkip(docId, accum, j, 0, 0, 0, 0);
+                    impacts.add(accum.getCompetitiveFreqNormPairs());
+                    accum.clear();
                 }
             }
             nextDocIds.add(Integer.MAX_VALUE);
@@ -96,6 +105,7 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
             expectedNextSkipDocIds.add(nextDocIds);
             skipStartPositionsOld.add(oldWriter.writeSkip(outOld));
             skipStartPositionsNew.add(newWriter.writeSkip(outNew));
+            expectedImpacts.add(impacts);
         }
         outOld.close();
         outNew.close();
@@ -103,10 +113,10 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
         IndexInput inOld = d.openInput("test_old.bin", IOContext.READONCE);
         IndexInput inNew = d.openInput("test_new.bin", IOContext.READONCE);
 
-        Lucene90SkipReader oldReader =
-                new Lucene90SkipReader(inOld, 1, false, false, false);
-        Lucene90FlatSkipReader newReader =
-                new Lucene90FlatSkipReader(inNew, 1, false, false, false);
+        Lucene90ScoreSkipReader oldReader =
+                new Lucene90ScoreSkipReader(inOld, 1, false, false, false);
+        Lucene90FlatScoreSkipReader newReader =
+                new Lucene90FlatScoreSkipReader(inNew, 1, false, false, false);
         for (int i = 0; i < postingsCount; i++) {
             long basePosOld = postingStartPositionsOld.get(i);
             long basePosNew = postingStartPositionsNew.get(i);
@@ -152,6 +162,12 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
                 int newNextDoc = newReader.getNextSkipDoc();
                 Assert.assertEquals(oldNextDoc, newNextDoc);
                 Assert.assertEquals((int) nextDocIds.get(j), newNextDoc);
+
+                Impacts oldImpacts = oldReader.getImpacts();
+                Impacts newImpacts = newReader.getImpacts();
+                Assert.assertEquals(oldImpacts.numLevels(), newImpacts.numLevels());
+                Assert.assertEquals(oldImpacts.getDocIdUpTo(0), newImpacts.getDocIdUpTo(0));
+                Assert.assertEquals(oldImpacts.getImpacts(0), newImpacts.getImpacts(0));
             }
         }
         oldReader.close();
@@ -200,5 +216,4 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
 
         d.close();
     }
-     */
 }

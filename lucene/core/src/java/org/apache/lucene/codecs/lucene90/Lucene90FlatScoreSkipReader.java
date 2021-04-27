@@ -3,7 +3,6 @@ package org.apache.lucene.codecs.lucene90;
 import org.apache.lucene.index.Impact;
 import org.apache.lucene.index.Impacts;
 import org.apache.lucene.store.ByteArrayDataInput;
-import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.ArrayUtil;
 
@@ -34,6 +33,7 @@ final class Lucene90FlatScoreSkipReader extends Lucene90FlatSkipReader {
 
                     @Override
                     public int getDocIdUpTo(int level) {
+                        assert level == 0;
                         return nextDoc;
                     }
 

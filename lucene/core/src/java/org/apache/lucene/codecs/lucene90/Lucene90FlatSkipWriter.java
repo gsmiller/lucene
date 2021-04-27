@@ -62,7 +62,6 @@ final class Lucene90FlatSkipWriter {
         long newSize = freqNormOut.size();
         skipBuffer.writeLong(oldSize);
         skipBuffer.writeInt((int) (newSize - oldSize));
-        competitiveFreqNorms.clear();
     }
 
     /**

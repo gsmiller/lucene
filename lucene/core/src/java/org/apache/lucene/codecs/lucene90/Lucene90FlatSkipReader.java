@@ -56,11 +56,13 @@ class Lucene90FlatSkipReader implements Closeable {
         if (nextDoc == -1) {
             if (skipEntryCount == 0) {
                 nextDoc = Integer.MAX_VALUE;
+                setImpactsLastBlock();
             } else {
                 skipStream.seek(skipBase);
                 skipLength = skipStream.readVLong();
                 skipBase = skipStream.getFilePointer();
                 nextDoc = readSkipDocOnly(0);
+                loadRawImpacts(0);
             }
         }
 

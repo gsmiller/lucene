@@ -3,6 +3,7 @@ package org.apache.lucene.codecs.lucene90;
 import org.apache.lucene.index.Impact;
 import org.apache.lucene.index.Impacts;
 import org.apache.lucene.store.ByteArrayDataInput;
+import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.ArrayUtil;
 
@@ -40,7 +41,8 @@ final class Lucene90FlatScoreSkipReader extends Lucene90FlatSkipReader {
                     public List<Impact> getImpacts(int level) {
                         assert level == 0;
                         if (lastImpactsSize > 0) {
-                            processImpacts();
+                            impactsBadi.reset(impactsData, 0, lastImpactsSize);
+                            processImpacts(impactsBadi, impactsList);
                             lastImpactsSize = 0;
                         }
                         return impactsList;
@@ -71,7 +73,6 @@ final class Lucene90FlatScoreSkipReader extends Lucene90FlatSkipReader {
             impactsData = new byte[ArrayUtil.oversize(lastImpactsSize, Byte.BYTES)];
         }
         skipStream.readBytes(impactsData, 0, lastImpactsSize);
-        impactsBadi.reset(impactsData, 0, lastImpactsSize);
     }
 
     @Override
@@ -82,25 +83,25 @@ final class Lucene90FlatScoreSkipReader extends Lucene90FlatSkipReader {
         impactsList.impacts[0].norm = 1L;
     }
 
-    private void processImpacts() {
-        int maxNumImpacts = impactsBadi.length(); // at most one impact per byte
-        if (impactsList.impacts.length < maxNumImpacts) {
-            int oldLength = impactsList.impacts.length;
-            impactsList.impacts = ArrayUtil.grow(impactsList.impacts, maxNumImpacts);
-            for (int i = oldLength; i < impactsList.impacts.length; ++i) {
-                impactsList.impacts[i] = new Impact(Integer.MAX_VALUE, 1L);
+    private static void processImpacts(ByteArrayDataInput in, MutableImpactList reuse) {
+        int maxNumImpacts = in.length(); // at most one impact per byte
+        if (reuse.impacts.length < maxNumImpacts) {
+            int oldLength = reuse.impacts.length;
+            reuse.impacts = ArrayUtil.grow(reuse.impacts, maxNumImpacts);
+            for (int i = oldLength; i < reuse.impacts.length; ++i) {
+                reuse.impacts[i] = new Impact(Integer.MAX_VALUE, 1L);
             }
         }
 
         int freq = 0;
         long norm = 0;
         int length = 0;
-        while (impactsBadi.getPosition() < impactsBadi.length()) {
-            int freqDelta = impactsBadi.readVInt();
+        while (in.getPosition() < in.length()) {
+            int freqDelta = in.readVInt();
             if ((freqDelta & 0x01) != 0) {
                 freq += 1 + (freqDelta >>> 1);
                 try {
-                    norm += 1 + impactsBadi.readZLong();
+                    norm += 1 + in.readZLong();
                 } catch (IOException e) {
                     throw new RuntimeException(e); // cannot happen on a BADI
                 }
@@ -108,12 +109,12 @@ final class Lucene90FlatScoreSkipReader extends Lucene90FlatSkipReader {
                 freq += 1 + (freqDelta >>> 1);
                 norm++;
             }
-            Impact impact = impactsList.impacts[length];
+            Impact impact = reuse.impacts[length];
             impact.freq = freq;
             impact.norm = norm;
             length++;
         }
-        impactsList.length = length;
+        reuse.length = length;
     }
 
     private static class MutableImpactList extends AbstractList<Impact> implements RandomAccess {

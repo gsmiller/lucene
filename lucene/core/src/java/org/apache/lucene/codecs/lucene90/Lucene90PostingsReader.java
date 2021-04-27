@@ -313,7 +313,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
 
     private int docBufferUpto;
 
-    private Lucene90FlatSkipReader skipper;
+    private Lucene90SkipReader skipper;
     private boolean skipped;
 
     final IndexInput startDocIn;
@@ -500,7 +500,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
         if (skipper == null) {
           // Lazy init: first time this enum has ever been used for skipping
           skipper =
-              new Lucene90FlatSkipReader(
+              new Lucene90SkipReader(
                   docIn.clone(), MAX_SKIP_LEVELS, indexHasPos, indexHasOffsets, indexHasPayloads);
         }
 
@@ -584,7 +584,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     private int docBufferUpto;
     private int posBufferUpto;
 
-    private Lucene90FlatSkipReader skipper;
+    private Lucene90SkipReader skipper;
     private boolean skipped;
 
     final IndexInput startDocIn;
@@ -863,7 +863,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
         if (skipper == null) {
           // Lazy init: first time this enum has ever been used for skipping
           skipper =
-              new Lucene90FlatSkipReader(
+              new Lucene90SkipReader(
                   docIn.clone(), MAX_SKIP_LEVELS, true, indexHasOffsets, indexHasPayloads);
         }
 
@@ -1054,7 +1054,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
 
     private int docBufferUpto;
 
-    private final Lucene90FlatScoreSkipReader skipper;
+    private final Lucene90ScoreSkipReader skipper;
 
     final IndexInput docIn;
 
@@ -1097,7 +1097,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       docBufferUpto = BLOCK_SIZE;
 
       skipper =
-          new Lucene90FlatScoreSkipReader(
+          new Lucene90ScoreSkipReader(
               docIn.clone(), MAX_SKIP_LEVELS, indexHasPositions, indexHasOffsets, indexHasPayloads);
       skipper.init(
           termState.docStartFP + termState.skipOffset,
@@ -1249,7 +1249,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     private int docBufferUpto;
     private int posBufferUpto;
 
-    private final Lucene90FlatScoreSkipReader skipper;
+    private final Lucene90ScoreSkipReader skipper;
 
     final IndexInput docIn;
     final IndexInput posIn;
@@ -1327,7 +1327,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       docBufferUpto = BLOCK_SIZE;
 
       skipper =
-          new Lucene90FlatScoreSkipReader(
+          new Lucene90ScoreSkipReader(
               docIn.clone(), MAX_SKIP_LEVELS, true, indexHasOffsets, indexHasPayloads);
       skipper.init(
           docTermStartFP + termState.skipOffset,
@@ -1553,7 +1553,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     private int docBufferUpto;
     private int posBufferUpto;
 
-    private final Lucene90FlatScoreSkipReader skipper;
+    private final Lucene90ScoreSkipReader skipper;
 
     final IndexInput docIn;
     final IndexInput posIn;
@@ -1686,7 +1686,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       docBufferUpto = BLOCK_SIZE;
 
       skipper =
-          new Lucene90FlatScoreSkipReader(
+          new Lucene90ScoreSkipReader(
               docIn.clone(), MAX_SKIP_LEVELS, indexHasPos, indexHasOffsets, indexHasPayloads);
       skipper.init(
           docTermStartFP + termState.skipOffset,

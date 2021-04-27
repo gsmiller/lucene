@@ -205,7 +205,7 @@ final class Lucene90SkipWriter extends MultiLevelSkipListWriter {
     }
 
     CompetitiveImpactAccumulator competitiveFreqNorms = curCompetitiveFreqNorms[level];
-    //assert competitiveFreqNorms.getCompetitiveFreqNormPairs().size() > 0;
+    assert competitiveFreqNorms.getCompetitiveFreqNormPairs().size() > 0;
     if (level + 1 < numberOfSkipLevels) {
       curCompetitiveFreqNorms[level + 1].addAll(competitiveFreqNorms);
     }

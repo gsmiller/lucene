@@ -68,7 +68,7 @@ final class Lucene90ScoreSkipReader extends Lucene90SkipReader {
             assert level < numLevels;
             if (impactDataLength[level] > 0) {
               badi.reset(impactData[level], 0, impactDataLength[level]);
-//              perLevelImpacts[level] = readImpacts(badi, perLevelImpacts[level]);
+              perLevelImpacts[level] = readImpacts(badi, perLevelImpacts[level]);
               impactDataLength[level] = 0;
             }
             return perLevelImpacts[level];

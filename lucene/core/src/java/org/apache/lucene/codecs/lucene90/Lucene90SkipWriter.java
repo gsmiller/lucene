@@ -16,15 +16,13 @@
  */
 package org.apache.lucene.codecs.lucene90;
 
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.Collection;
 import org.apache.lucene.codecs.CompetitiveImpactAccumulator;
 import org.apache.lucene.codecs.MultiLevelSkipListWriter;
-import org.apache.lucene.index.Impact;
-import org.apache.lucene.store.ByteBuffersDataOutput;
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.IndexOutput;
+
+import java.io.IOException;
+import java.util.Arrays;
 
 /**
  * Write skip lists with multiple levels, and support skip within block ints.
@@ -61,7 +59,6 @@ final class Lucene90SkipWriter extends MultiLevelSkipListWriter {
   private long curPayPointer;
   private int curPosBufferUpto;
   private int curPayloadByteUpto;
-  private CompetitiveImpactAccumulator[] curCompetitiveFreqNorms;
   private boolean fieldHasPositions;
   private boolean fieldHasOffsets;
   private boolean fieldHasPayloads;
@@ -85,10 +82,6 @@ final class Lucene90SkipWriter extends MultiLevelSkipListWriter {
       if (payOut != null) {
         lastSkipPayPointer = new long[maxSkipLevels];
       }
-    }
-    curCompetitiveFreqNorms = new CompetitiveImpactAccumulator[maxSkipLevels];
-    for (int i = 0; i < maxSkipLevels; ++i) {
-      curCompetitiveFreqNorms[i] = new CompetitiveImpactAccumulator();
     }
   }
 
@@ -120,11 +113,6 @@ final class Lucene90SkipWriter extends MultiLevelSkipListWriter {
         lastPayFP = payOut.getFilePointer();
       }
     }
-    if (initialized) {
-      for (CompetitiveImpactAccumulator acc : curCompetitiveFreqNorms) {
-        acc.clear();
-      }
-    }
     initialized = false;
   }
 
@@ -139,12 +127,6 @@ final class Lucene90SkipWriter extends MultiLevelSkipListWriter {
           Arrays.fill(lastSkipPayPointer, lastPayFP);
         }
       }
-      // sets of competitive freq,norm pairs should be empty at this point
-      assert Arrays.stream(curCompetitiveFreqNorms)
-              .map(CompetitiveImpactAccumulator::getCompetitiveFreqNormPairs)
-              .mapToInt(Collection::size)
-              .sum()
-          == 0;
       initialized = true;
     }
   }
@@ -166,11 +148,8 @@ final class Lucene90SkipWriter extends MultiLevelSkipListWriter {
     this.curPayPointer = payFP;
     this.curPosBufferUpto = posBufferUpto;
     this.curPayloadByteUpto = payloadByteUpto;
-    this.curCompetitiveFreqNorms[0].addAll(competitiveFreqNorms);
     bufferSkip(numDocs);
   }
-
-  private final ByteBuffersDataOutput freqNormOut = ByteBuffersDataOutput.newResettableInstance();
 
   @Override
   protected void writeSkipData(int level, DataOutput skipBuffer) throws IOException {
@@ -197,36 +176,6 @@ final class Lucene90SkipWriter extends MultiLevelSkipListWriter {
         skipBuffer.writeVLong(curPayPointer - lastSkipPayPointer[level]);
         lastSkipPayPointer[level] = curPayPointer;
       }
-    }
-
-    CompetitiveImpactAccumulator competitiveFreqNorms = curCompetitiveFreqNorms[level];
-    assert competitiveFreqNorms.getCompetitiveFreqNormPairs().size() > 0;
-    if (level + 1 < numberOfSkipLevels) {
-      curCompetitiveFreqNorms[level + 1].addAll(competitiveFreqNorms);
-    }
-    writeImpacts(competitiveFreqNorms, freqNormOut);
-    skipBuffer.writeVInt(Math.toIntExact(freqNormOut.size()));
-    freqNormOut.copyTo(skipBuffer);
-    freqNormOut.reset();
-    competitiveFreqNorms.clear();
-  }
-
-  static void writeImpacts(CompetitiveImpactAccumulator acc, DataOutput out) throws IOException {
-    Collection<Impact> impacts = acc.getCompetitiveFreqNormPairs();
-    Impact previous = new Impact(0, 0);
-    for (Impact impact : impacts) {
-      assert impact.freq > previous.freq;
-      assert Long.compareUnsigned(impact.norm, previous.norm) > 0;
-      int freqDelta = impact.freq - previous.freq - 1;
-      long normDelta = impact.norm - previous.norm - 1;
-      if (normDelta == 0) {
-        // most of time, norm only increases by 1, so we can fold everything in a single byte
-        out.writeVInt(freqDelta << 1);
-      } else {
-        out.writeVInt((freqDelta << 1) | 1);
-        out.writeZLong(normDelta);
-      }
-      previous = impact;
     }
   }
 }

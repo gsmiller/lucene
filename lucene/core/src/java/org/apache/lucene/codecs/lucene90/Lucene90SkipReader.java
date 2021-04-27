@@ -195,12 +195,6 @@ class Lucene90SkipReader extends MultiLevelSkipListReader {
         payPointer[level] += skipStream.readVLong();
       }
     }
-    readImpacts(level, skipStream);
     return delta;
-  }
-
-  // The default impl skips impacts
-  protected void readImpacts(int level, IndexInput skipStream) throws IOException {
-    skipStream.skipBytes(skipStream.readVInt());
   }
 }

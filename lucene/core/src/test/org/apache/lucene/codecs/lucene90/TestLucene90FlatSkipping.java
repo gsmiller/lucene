@@ -32,11 +32,11 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
         IndexOutput outNew = d.createOutput("test_new.bin", IOContext.DEFAULT);
 
         Lucene90SkipWriter oldWriter =
-                new Lucene90SkipWriter(1, ForUtil.BLOCK_SIZE, Integer.MAX_VALUE, outOld, null, null);
+                new Lucene90SkipWriter(10, ForUtil.BLOCK_SIZE, Integer.MAX_VALUE, outOld, null, null);
         Lucene90FlatSkipWriter newWriter =
                 new Lucene90FlatSkipWriter(1, ForUtil.BLOCK_SIZE, Integer.MAX_VALUE, outNew, null, null);
 
-        int postingsCount = RandomNumbers.randomIntBetween(random, 10, 100);
+        int postingsCount = RandomNumbers.randomIntBetween(random, 100, 1000);
         List<Long> postingStartPositionsOld = new ArrayList<>();
         List<Long> postingStartPositionsNew = new ArrayList<>();
         List<Integer> postingDocCounts = new ArrayList<>();
@@ -48,7 +48,7 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
         List<Long> skipStartPositionsNew = new ArrayList<>();
         List<List<Collection<Impact>>> expectedImpacts = new ArrayList<>();
         for (int i = 0; i < postingsCount; i++) {
-            int numBlocks = RandomNumbers.randomIntBetween(random, 1, 10);
+            int numBlocks = RandomNumbers.randomIntBetween(random, 1, 512);
             if (random.nextInt(100) < 20) {
                 numBlocks = 0;
             }
@@ -60,7 +60,7 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
             postingDocCounts.add(docCount);
             int maxBitsPerValue = (int) Math.floor(31D - (Math.log(docCount)));
             int maxDocDelta = (int) PackedInts.maxValue(maxBitsPerValue - 1);
-            maxDocDelta = 100; // TODO shouldn't need this
+            maxDocDelta = 10; // TODO shouldn't need this
 
             oldWriter.setField(false, false, false);
             newWriter.setField(false, false, false);
@@ -114,7 +114,7 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
         IndexInput inNew = d.openInput("test_new.bin", IOContext.READONCE);
 
         Lucene90ScoreSkipReader oldReader =
-                new Lucene90ScoreSkipReader(inOld, 1, false, false, false);
+                new Lucene90ScoreSkipReader(inOld, 10, false, false, false);
         Lucene90FlatScoreSkipReader newReader =
                 new Lucene90FlatScoreSkipReader(inNew, 1, false, false, false);
         for (int i = 0; i < postingsCount; i++) {
@@ -134,7 +134,12 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
             newReader.init(skipPosNew, basePosNew, 0, 0, docCount);
 
             for (int j = 0; j < blockCount; j++) {
-                if (random.nextInt(100) < 50) {
+                int tmp = random.nextInt(100);
+                if (tmp < 10) {
+                    j = Math.min(blockCount - 1, j + 50);
+                } else if (tmp < 20) {
+                    j = Math.min(blockCount - 1, j + 10);
+                } else if (tmp < 50) {
                     continue;
                 }
 
@@ -165,9 +170,12 @@ public class TestLucene90FlatSkipping extends LuceneTestCase {
 
                 Impacts oldImpacts = oldReader.getImpacts();
                 Impacts newImpacts = newReader.getImpacts();
-                Assert.assertEquals(oldImpacts.numLevels(), newImpacts.numLevels());
                 Assert.assertEquals(oldImpacts.getDocIdUpTo(0), newImpacts.getDocIdUpTo(0));
                 Assert.assertEquals(oldImpacts.getImpacts(0), newImpacts.getImpacts(0));
+                for (Impact impact : newImpacts.getImpacts(0)) {
+                    Assert.assertEquals(Integer.MAX_VALUE, impact.freq);
+                    Assert.assertEquals(1, impact.norm);
+                }
             }
         }
         oldReader.close();

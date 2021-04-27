@@ -42,7 +42,7 @@ final class Lucene90FlatScoreSkipReader extends Lucene90FlatSkipReader {
                         assert level == 0;
                         if (lastImpactsSize > 0) {
                             impactsBadi.reset(impactsData, 0, lastImpactsSize);
-                            processImpacts(impactsBadi, impactsList);
+//                            processImpacts(impactsBadi, impactsList);
                             lastImpactsSize = 0;
                         }
                         return impactsList;

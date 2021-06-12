@@ -253,7 +253,7 @@ public class TestMultiCollector extends LuceneTestCase {
     expectThrows(
         IllegalArgumentException.class,
         () -> {
-          MultiCollector.wrap(null, null);
+          MultiCollector.wrap(MultiCollector.EarlyTerminationBehavior.TERMINATE_INDIVIDUAL, null, null);
         });
 
     // Tests that the collector handles some null collectors well. If it

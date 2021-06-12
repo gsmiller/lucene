@@ -29,9 +29,19 @@ import org.apache.lucene.index.LeafReaderContext;
  */
 public class MultiCollector implements Collector {
 
+  public enum EarlyTerminationBehavior {
+    TERMINATE_ALL,
+    TERMINATE_INDIVIDUAL
+  }
+
   /** See {@link #wrap(Iterable)}. */
   public static Collector wrap(Collector... collectors) {
-    return wrap(Arrays.asList(collectors));
+    return wrap(EarlyTerminationBehavior.TERMINATE_INDIVIDUAL, collectors);
+  }
+
+  /** See {@link #wrap(Iterable)}. */
+  public static Collector wrap(EarlyTerminationBehavior earlyTerminationBehavior, Collector... collectors) {
+    return wrap(earlyTerminationBehavior, Arrays.asList(collectors));
   }
 
   /**
@@ -48,6 +58,23 @@ public class MultiCollector implements Collector {
    *     <code>null</code>.
    */
   public static Collector wrap(Iterable<? extends Collector> collectors) {
+    return wrap(EarlyTerminationBehavior.TERMINATE_INDIVIDUAL, collectors);
+  }
+
+  /**
+   * Wraps a list of {@link Collector}s with a {@link MultiCollector}. This method works as follows:
+   *
+   * <ul>
+   *   <li>Filters out the <code>null</code> collectors, so they are not used during search time.
+   *   <li>If the input contains 1 real collector (i.e. non-<code>null</code> ), it is returned.
+   *   <li>Otherwise the method returns a {@link MultiCollector} which wraps the non-<code>null
+   *       </code> ones.
+   * </ul>
+   *
+   * @throws IllegalArgumentException if either 0 collectors were input, or all collectors are
+   *     <code>null</code>.
+   */
+  public static Collector wrap(EarlyTerminationBehavior earlyTerminationBehavior, Iterable<? extends Collector> collectors) {
     // For the user's convenience, we allow null collectors to be passed.
     // However, to improve performance, these null collectors are found
     // and dropped from the array we save for actual collection time.
@@ -78,14 +105,16 @@ public class MultiCollector implements Collector {
           colls[n++] = c;
         }
       }
-      return new MultiCollector(colls);
+      return new MultiCollector(earlyTerminationBehavior, colls);
     }
   }
 
+  private final EarlyTerminationBehavior earlyTerminationBehavior;
   private final boolean cacheScores;
   private final Collector[] collectors;
 
-  private MultiCollector(Collector... collectors) {
+  private MultiCollector(EarlyTerminationBehavior earlyTerminationBehavior, Collector... collectors) {
+    this.earlyTerminationBehavior = earlyTerminationBehavior;
     this.collectors = collectors;
     int numNeedsScores = 0;
     for (Collector collector : collectors) {
@@ -131,19 +160,21 @@ public class MultiCollector implements Collector {
         return leafCollectors.get(0);
       default:
         return new MultiLeafCollector(
-            leafCollectors, cacheScores, scoreMode() == ScoreMode.TOP_SCORES);
+            earlyTerminationBehavior, leafCollectors, cacheScores, scoreMode() == ScoreMode.TOP_SCORES);
     }
   }
 
   private static class MultiLeafCollector implements LeafCollector {
 
+    private final EarlyTerminationBehavior earlyTerminationBehavior;
     private final boolean cacheScores;
     private final LeafCollector[] collectors;
     private final float[] minScores;
     private final boolean skipNonCompetitiveScores;
 
     private MultiLeafCollector(
-        List<LeafCollector> collectors, boolean cacheScores, boolean skipNonCompetitive) {
+        EarlyTerminationBehavior earlyTerminationBehavior, List<LeafCollector> collectors, boolean cacheScores, boolean skipNonCompetitive) {
+      this.earlyTerminationBehavior = earlyTerminationBehavior;
       this.collectors = collectors.toArray(new LeafCollector[collectors.size()]);
       this.cacheScores = cacheScores;
       this.skipNonCompetitiveScores = skipNonCompetitive;
@@ -188,11 +219,9 @@ public class MultiCollector implements Collector {
         if (collector != null) {
           try {
             collector.collect(doc);
-          } catch (
-              @SuppressWarnings("unused")
-              CollectionTerminatedException e) {
+          } catch (CollectionTerminatedException e) {
             collectors[i] = null;
-            if (allCollectorsTerminated()) {
+            if (earlyTerminationBehavior == EarlyTerminationBehavior.TERMINATE_ALL || allCollectorsTerminated()) {
               throw new CollectionTerminatedException();
             }
           }

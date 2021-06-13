@@ -238,7 +238,7 @@ public class MultiCollector implements Collector {
             collectors[i] = null;
             if (earlyTerminationBehavior == EarlyTerminationBehavior.TERMINATE_ALL
                 || allCollectorsTerminated()) {
-              throw new CollectionTerminatedException();
+              throw e;
             }
           }
         }

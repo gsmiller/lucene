@@ -24,10 +24,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Function;
-
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
@@ -120,14 +117,14 @@ public class TestMultiCollector extends LuceneTestCase {
       } else {
         earlyTerminationBehavior = MultiCollector.EarlyTerminationBehavior.TERMINATE_ALL;
       }
-      searcher.search(new MatchAllDocsQuery(), MultiCollector.wrap(earlyTerminationBehavior, collectors));
+      searcher.search(
+          new MatchAllDocsQuery(), MultiCollector.wrap(earlyTerminationBehavior, collectors));
       if (earlyTerminationBehavior == MultiCollector.EarlyTerminationBehavior.TERMINATE_ALL) {
         // If we TERMINATE_ALL, then all collectors should get terminated after the first one
         // terminates. So we expect them all to collect the min "terminate after" across all
         // collectors:
-        int minCount = expectedCounts.values().stream()
-                .min(Comparator.comparingInt(v -> v))
-                .orElse(0);
+        int minCount =
+            expectedCounts.values().stream().min(Comparator.comparingInt(v -> v)).orElse(0);
         for (TotalHitCountCollector c : expectedCounts.keySet()) {
           // Collectors might "over collect" by 1 in this test. This is because we don't control
           // the order in which the collectors collect. When the first collector terminates, other
@@ -281,7 +278,8 @@ public class TestMultiCollector extends LuceneTestCase {
     expectThrows(
         IllegalArgumentException.class,
         () -> {
-          MultiCollector.wrap(MultiCollector.EarlyTerminationBehavior.TERMINATE_INDIVIDUAL, null, null);
+          MultiCollector.wrap(
+              MultiCollector.EarlyTerminationBehavior.TERMINATE_INDIVIDUAL, null, null);
         });
 
     // Tests that the collector handles some null collectors well. If it

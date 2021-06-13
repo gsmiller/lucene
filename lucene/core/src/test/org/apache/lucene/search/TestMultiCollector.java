@@ -20,10 +20,14 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
+
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexReader;
@@ -105,14 +109,38 @@ public class TestMultiCollector extends LuceneTestCase {
       final int numCollectors = TestUtil.nextInt(random(), 1, 5);
       for (int i = 0; i < numCollectors; ++i) {
         final int terminateAfter = random().nextInt(numDocs + 10);
-        final int expectedCount = terminateAfter > numDocs ? numDocs : terminateAfter;
+        final int expectedCount = Math.min(terminateAfter, numDocs);
         TotalHitCountCollector collector = new TotalHitCountCollector();
         expectedCounts.put(collector, expectedCount);
         collectors.add(new TerminateAfterCollector(collector, terminateAfter));
       }
-      searcher.search(new MatchAllDocsQuery(), MultiCollector.wrap(collectors));
-      for (Map.Entry<TotalHitCountCollector, Integer> expectedCount : expectedCounts.entrySet()) {
-        assertEquals(expectedCount.getValue().intValue(), expectedCount.getKey().getTotalHits());
+      MultiCollector.EarlyTerminationBehavior earlyTerminationBehavior;
+      if (random().nextBoolean()) {
+        earlyTerminationBehavior = MultiCollector.EarlyTerminationBehavior.TERMINATE_INDIVIDUAL;
+      } else {
+        earlyTerminationBehavior = MultiCollector.EarlyTerminationBehavior.TERMINATE_ALL;
+      }
+      searcher.search(new MatchAllDocsQuery(), MultiCollector.wrap(earlyTerminationBehavior, collectors));
+      if (earlyTerminationBehavior == MultiCollector.EarlyTerminationBehavior.TERMINATE_ALL) {
+        // If we TERMINATE_ALL, then all collectors should get terminated after the first one
+        // terminates. So we expect them all to collect the min "terminate after" across all
+        // collectors:
+        int minCount = expectedCounts.values().stream()
+                .min(Comparator.comparingInt(v -> v))
+                .orElse(0);
+        for (TotalHitCountCollector c : expectedCounts.keySet()) {
+          // Collectors might "over collect" by 1 in this test. This is because we don't control
+          // the order in which the collectors collect. When the first collector terminates, other
+          // collectors may have already collected the doc, collecting one more than the terminating
+          // collector:
+          assertTrue(c.getTotalHits() == minCount || c.getTotalHits() == minCount + 1);
+        }
+      } else {
+        // If we TERMINATE_INDIVIDUAL, each collector should collect the expected docs, even after
+        // others terminate:
+        for (Map.Entry<TotalHitCountCollector, Integer> expectedCount : expectedCounts.entrySet()) {
+          assertEquals(expectedCount.getValue().intValue(), expectedCount.getKey().getTotalHits());
+        }
       }
       reader.close();
       dir.close();

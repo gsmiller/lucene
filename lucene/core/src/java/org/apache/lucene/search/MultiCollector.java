@@ -145,10 +145,14 @@ public class MultiCollector implements Collector {
       final LeafCollector leafCollector;
       try {
         leafCollector = collector.getLeafCollector(context);
-      } catch (
-          @SuppressWarnings("unused")
-          CollectionTerminatedException e) {
-        // this leaf collector does not need this segment
+      } catch (CollectionTerminatedException e) {
+        // If TERMINATE_ALL, rethrow. One of the wrapped collectors is signaling early termination,
+        // and in TERMINATE_ALL, that means everything should terminate:
+        if (earlyTerminationBehavior == EarlyTerminationBehavior.TERMINATE_ALL) {
+          throw e;
+        }
+        // If TERMINATE_INDIVIDUAL, just skip this collector since it's signaling early termination,
+        // but allow other collectors to keep collecting:
         continue;
       }
       leafCollectors.add(leafCollector);

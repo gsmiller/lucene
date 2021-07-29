@@ -48,7 +48,8 @@ final class DocValuesEncoder {
       }
     }
 
-    final boolean doDeltaCompression = (gts == 0 && lts >= 2) || (lts == 0 && gts >= 2);
+//    final boolean doDeltaCompression = (gts == 0 && lts >= 2) || (lts == 0 && gts >= 2);
+    final boolean doDeltaCompression = false;
     long first = 0;
     if (doDeltaCompression) {
       for (int i = BLOCK_SIZE - 1; i > 0; --i) {

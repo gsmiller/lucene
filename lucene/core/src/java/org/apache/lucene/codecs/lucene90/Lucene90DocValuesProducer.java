@@ -456,8 +456,7 @@ final class Lucene90DocValuesProducer extends DocValuesProducer {
 
         long result = currentBlock[blockInIndex];
         if (resultsMeta != null) {
-          result *= resultsMeta.mul;
-          result += resultsMeta.off;
+          result = result * resultsMeta.mul + resultsMeta.off;
         }
 
         return result;

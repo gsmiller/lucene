@@ -156,7 +156,12 @@ public class TestDocValuesEncoder extends LuceneTestCase {
         for (int i = 0; i < decoded.length; ++i) {
           decoded[i] = random().nextLong();
         }
-        encoder.decode(in, decoded);
+        DocValuesEncoder.PartiallyDecodedMeta meta = encoder.decode(in, decoded);
+        if (meta != null) {
+          for (int i = 0; i < decoded.length; i++) {
+            decoded[i] = decoded[i] * meta.mul + meta.off;
+          }
+        }
         assertEquals(in.length(), in.getFilePointer());
         assertArrayEquals(expected, decoded);
       }

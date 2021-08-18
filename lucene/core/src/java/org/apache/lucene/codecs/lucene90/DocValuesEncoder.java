@@ -154,7 +154,7 @@ final class DocValuesEncoder {
   }
 
   /** Decode longs that have been encoded with {@link #encode}. */
-  void decode(DataInput in, long[] out) throws IOException {
+  PartiallyDecodedMeta decode(DataInput in, long[] out) throws IOException {
     assert out.length == BLOCK_SIZE : out.length;
 
     final int token = in.readVInt();
@@ -169,26 +169,33 @@ final class DocValuesEncoder {
     // simple blocks that only perform bit packing exit early here
     // this is typical for SORTED(_SET) ordinals
     if ((token & 0x07) != 0) {
-
       final boolean doGcdCompression = (token & 0x01) != 0;
-      if (doGcdCompression) {
-        final long gcd = 2 + in.readVLong();
-        mul(out, gcd);
-      }
-
       final boolean hasOffset = (token & 0x02) != 0;
-      if (hasOffset) {
-        final long min = in.readZLong();
-        add(out, min);
-      }
-
       final boolean doDeltaCompression = (token & 0x04) != 0;
+
       if (doDeltaCompression) {
+        if (doGcdCompression) {
+          final long mul = 2 + in.readVLong();
+          mul(out, mul);
+        }
+
+        if (hasOffset) {
+          final long off = in.readZLong();
+          add(out, off);
+        }
+
         final long first = in.readZLong();
         out[0] += first;
         deltaDecode(out);
+      } else {
+        assert doGcdCompression || hasOffset;
+        final long mul = doGcdCompression ? 2 + in.readVLong() : 1;
+        final long off = hasOffset ? in.readZLong() : 0;
+        return new PartiallyDecodedMeta(mul, off);
       }
     }
+
+    return null;
   }
 
   // this loop should auto-vectorize
@@ -208,6 +215,16 @@ final class DocValuesEncoder {
   private void deltaDecode(long[] arr) {
     for (int i = 1; i < BLOCK_SIZE; ++i) {
       arr[i] += arr[i - 1];
+    }
+  }
+
+  static final class PartiallyDecodedMeta {
+    final long mul;
+    final long off;
+
+    PartiallyDecodedMeta(long mul, long off) {
+      this.mul = mul;
+      this.off = off;
     }
   }
 }

@@ -439,6 +439,8 @@ final class Lucene90DocValuesProducer extends DocValuesProducer {
       private long currentBlockIndex = -1;
       private final long[] currentBlock = new long[NUMERIC_BLOCK_SIZE];
 
+      private DocValuesEncoder.PartiallyDecodedMeta resultsMeta;
+
       @Override
       long advance(long index) throws IOException {
         final long blockIndex = index >>> NUMERIC_BLOCK_SHIFT;
@@ -449,9 +451,16 @@ final class Lucene90DocValuesProducer extends DocValuesProducer {
             valuesData.seek(indexReader.get(blockIndex));
           }
           currentBlockIndex = blockIndex;
-          decoder.decode(valuesData, currentBlock);
+          resultsMeta = decoder.decode(valuesData, currentBlock);
         }
-        return currentBlock[blockInIndex];
+
+        long result = currentBlock[blockInIndex];
+        if (resultsMeta != null) {
+          result *= resultsMeta.mul;
+          result += resultsMeta.off;
+        }
+
+        return result;
       }
     };
   }

@@ -22,8 +22,6 @@ import java.util.List;
 import org.apache.lucene.facet.FacetsCollector;
 import org.apache.lucene.facet.FacetsCollector.MatchingDocs;
 import org.apache.lucene.facet.FacetsConfig;
-import org.apache.lucene.index.BinaryDocValues;
-import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.SortedNumericDocValues;
@@ -31,7 +29,6 @@ import org.apache.lucene.search.ConjunctionUtils;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.util.Bits;
-import org.apache.lucene.util.BytesRef;
 
 /**
  * Computes facets counts, assuming the default encoding into DocValues was used.
@@ -72,13 +69,12 @@ public class FastTaxonomyFacetCounts extends IntTaxonomyFacets {
 
   private final void count(List<MatchingDocs> matchingDocs) throws IOException {
     for (MatchingDocs hits : matchingDocs) {
-      SortedNumericDocValues dv = DocValues.getSortedNumeric(hits.context.reader(), indexFieldName);
+      SortedNumericDocValues dv = hits.context.reader().getSortedNumericDocValues(indexFieldName);
       if (dv == null) {
         continue;
       }
 
       DocIdSetIterator it = ConjunctionUtils.intersectIterators(Arrays.asList(hits.bits.iterator(), dv));
-
       for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
         for (int i = 0; i < dv.docValueCount(); i++) {
           increment((int) dv.nextValue());
@@ -91,7 +87,7 @@ public class FastTaxonomyFacetCounts extends IntTaxonomyFacets {
 
   private final void countAll(IndexReader reader) throws IOException {
     for (LeafReaderContext context : reader.leaves()) {
-      SortedNumericDocValues dv = DocValues.getSortedNumeric(context.reader(), indexFieldName);
+      SortedNumericDocValues dv = context.reader().getSortedNumericDocValues(indexFieldName);
       if (dv == null) {
         continue;
       }

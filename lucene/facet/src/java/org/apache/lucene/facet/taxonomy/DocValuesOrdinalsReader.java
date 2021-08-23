@@ -18,12 +18,10 @@ package org.apache.lucene.facet.taxonomy;
 
 import java.io.IOException;
 import org.apache.lucene.facet.FacetsConfig;
-import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.SortedNumericDocValues;
 import org.apache.lucene.util.ArrayUtil;
-import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IntsRef;
 
 /** Decodes ordinals previously indexed into a BinaryDocValues field */
@@ -45,21 +43,21 @@ public class DocValuesOrdinalsReader extends OrdinalsReader {
     SortedNumericDocValues dv = DocValues.getSortedNumeric(context.reader(), field);
 
     return new OrdinalsSegmentReader() {
+
       private int lastDocID;
 
       @Override
-      public void get(int doc, IntsRef ordinals) throws IOException {
-        if (doc < lastDocID) {
+      public void get(int docID, IntsRef ordinals) throws IOException {
+        if (docID < lastDocID) {
           throw new AssertionError(
-              "docs out of order: lastDocID=" + lastDocID + " vs docID=" + doc);
+              "docs out of order: lastDocID=" + lastDocID + " vs docID=" + docID);
         }
-
-        lastDocID = doc;
+        lastDocID = docID;
 
         ordinals.offset = 0;
         ordinals.length = 0;
 
-        if (dv.advanceExact(doc)) {
+        if (dv.advanceExact(docID)) {
           int count = dv.docValueCount();
           if (ordinals.ints.length < count) {
             ordinals.ints = ArrayUtil.grow(ordinals.ints, count);

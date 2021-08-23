@@ -28,6 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.apache.lucene.document.BinaryDocValuesField;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesFacetField;
@@ -410,7 +411,16 @@ public class FacetsConfig {
 
       // Facet counts:
       // DocValues are considered stored fields:
-      doc.add(new BinaryDocValuesField(indexFieldName, dedupAndEncode(ordinals.get())));
+      IntsRef o = ordinals.get();
+      Arrays.sort(o.ints, o.offset, o.length);
+      int prev = -1;
+      for (int i = 0; i < o.length; i++) {
+        int ord = o.ints[o.offset + i];
+        if (ord > prev) {
+          doc.add(new SortedNumericDocValuesField(indexFieldName, ord));
+          prev = ord;
+        }
+      }
     }
   }
 

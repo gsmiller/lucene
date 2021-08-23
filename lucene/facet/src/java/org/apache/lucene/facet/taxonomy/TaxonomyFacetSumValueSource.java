@@ -21,10 +21,12 @@ import java.util.List;
 import org.apache.lucene.facet.FacetsCollector;
 import org.apache.lucene.facet.FacetsCollector.MatchingDocs;
 import org.apache.lucene.facet.FacetsConfig;
+import org.apache.lucene.index.DocValues;
+import org.apache.lucene.index.SortedNumericDocValues;
+import org.apache.lucene.search.ConjunctionUtils;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.DoubleValues;
 import org.apache.lucene.search.DoubleValuesSource;
-import org.apache.lucene.util.IntsRef;
 
 /**
  * Aggregates sum of values from {@link DoubleValues#doubleValue()}, for each facet label.
@@ -32,7 +34,6 @@ import org.apache.lucene.util.IntsRef;
  * @lucene.experimental
  */
 public class TaxonomyFacetSumValueSource extends FloatTaxonomyFacets {
-  private final OrdinalsReader ordinalsReader;
 
   /**
    * Aggreggates double facet values from the provided {@link DoubleValuesSource}, pulling ordinals
@@ -46,7 +47,7 @@ public class TaxonomyFacetSumValueSource extends FloatTaxonomyFacets {
       DoubleValuesSource valueSource)
       throws IOException {
     this(
-        new DocValuesOrdinalsReader(FacetsConfig.DEFAULT_INDEX_FIELD_NAME),
+        FacetsConfig.DEFAULT_INDEX_FIELD_NAME,
         taxoReader,
         config,
         fc,
@@ -58,14 +59,13 @@ public class TaxonomyFacetSumValueSource extends FloatTaxonomyFacets {
    * from the provided {@link OrdinalsReader}.
    */
   public TaxonomyFacetSumValueSource(
-      OrdinalsReader ordinalsReader,
+      String field,
       TaxonomyReader taxoReader,
       FacetsConfig config,
       FacetsCollector fc,
       DoubleValuesSource vs)
       throws IOException {
-    super(ordinalsReader.getIndexFieldName(), taxoReader, config);
-    this.ordinalsReader = ordinalsReader;
+    super(field, taxoReader, config);
     sumValues(fc.getMatchingDocs(), fc.getKeepScores(), vs);
   }
 
@@ -91,20 +91,22 @@ public class TaxonomyFacetSumValueSource extends FloatTaxonomyFacets {
       List<MatchingDocs> matchingDocs, boolean keepScores, DoubleValuesSource valueSource)
       throws IOException {
 
-    IntsRef scratch = new IntsRef();
     for (MatchingDocs hits : matchingDocs) {
-      OrdinalsReader.OrdinalsSegmentReader ords = ordinalsReader.getReader(hits.context);
+      SortedNumericDocValues dv = DocValues.getSortedNumeric(hits.context.reader(), indexFieldName);
+      if (dv == null) {
+        continue;
+      }
+
+      DocIdSetIterator it = ConjunctionUtils.intersectIterators(List.of(hits.bits.iterator(), dv));
+
       DoubleValues scores = keepScores ? scores(hits) : null;
       DoubleValues functionValues = valueSource.getValues(hits.context, scores);
-      DocIdSetIterator docs = hits.bits.iterator();
 
-      int doc;
-      while ((doc = docs.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
-        ords.get(doc, scratch);
+      for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
         if (functionValues.advanceExact(doc)) {
           float value = (float) functionValues.doubleValue();
-          for (int i = 0; i < scratch.length; i++) {
-            values[scratch.ints[i]] += value;
+          for (int i = 0; i < dv.docValueCount(); i++) {
+            values[(int) dv.nextValue()] += value;
           }
         }
       }

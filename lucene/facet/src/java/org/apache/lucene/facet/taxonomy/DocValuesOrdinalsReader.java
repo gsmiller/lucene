@@ -59,11 +59,8 @@ public class DocValuesOrdinalsReader extends OrdinalsReader {
               "docs out of order: lastDocID=" + lastDocID + " vs docID=" + docID);
         }
         lastDocID = docID;
-        if (docID > values.docID()) {
-          values.advance(docID);
-        }
         final BytesRef bytes;
-        if (values.docID() == docID) {
+        if (lastDocID == values.docID() || values.advanceExact(docID)) {
           bytes = values.binaryValue();
         } else {
           bytes = new BytesRef(BytesRef.EMPTY_BYTES);

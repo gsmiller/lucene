@@ -75,24 +75,24 @@ public class FastTaxonomyFacetCounts extends IntTaxonomyFacets {
         continue;
       }
 
-      DocIdSetIterator it =
-          ConjunctionUtils.intersectIterators(Arrays.asList(hits.bits.iterator(), dv));
-
+      DocIdSetIterator it = hits.bits.iterator();
       for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
-        final BytesRef bytesRef = dv.binaryValue();
-        byte[] bytes = bytesRef.bytes;
-        int end = bytesRef.offset + bytesRef.length;
-        int ord = 0;
-        int offset = bytesRef.offset;
-        int prev = 0;
-        while (offset < end) {
-          byte b = bytes[offset++];
-          if (b >= 0) {
-            prev = ord = ((ord << 7) | b) + prev;
-            increment(ord);
-            ord = 0;
-          } else {
-            ord = (ord << 7) | (b & 0x7F);
+        if (dv.advanceExact(doc)) {
+          final BytesRef bytesRef = dv.binaryValue();
+          byte[] bytes = bytesRef.bytes;
+          int end = bytesRef.offset + bytesRef.length;
+          int ord = 0;
+          int offset = bytesRef.offset;
+          int prev = 0;
+          while (offset < end) {
+            byte b = bytes[offset++];
+            if (b >= 0) {
+              prev = ord = ((ord << 7) | b) + prev;
+              increment(ord);
+              ord = 0;
+            } else {
+              ord = (ord << 7) | (b & 0x7F);
+            }
           }
         }
       }

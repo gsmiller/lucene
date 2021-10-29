@@ -73,11 +73,13 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
 
   private final String field;
   private final PrefixCodedTerms termData;
+  private final int termCount;
   private final int termDataHashCode; // cached hashcode of termData
 
   /** Creates a new {@link TermInSetQuery} from the given collection of terms. */
   public TermInSetQuery(String field, Collection<BytesRef> terms) {
     super(field);
+    int termCount = 0;
     BytesRef[] sortedTerms = terms.toArray(new BytesRef[0]);
     // already sorted if we are a SortedSet with natural order
     boolean sorted =
@@ -95,15 +97,22 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
       }
       builder.add(field, term);
       previous.copyBytes(term);
+      termCount++;
     }
     this.field = field;
     termData = builder.finish();
+    this.termCount = termCount;
     termDataHashCode = termData.hashCode();
   }
 
   /** Creates a new {@link TermInSetQuery} from the given array of terms. */
   public TermInSetQuery(String field, BytesRef... terms) {
     this(field, Arrays.asList(terms));
+  }
+
+  @Override
+  public int getTermsCount() throws IOException {
+    return termCount;
   }
 
   @Override

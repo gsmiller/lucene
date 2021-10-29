@@ -17,12 +17,16 @@
 package org.apache.lucene.document;
 
 import java.io.IOException;
+import java.util.Collection;
+
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.SortedSetDocValues;
+import org.apache.lucene.search.DocValuesRewriteMethod;
 import org.apache.lucene.search.IndexOrDocValuesQuery;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.util.BytesRef;
 
 /**
@@ -98,5 +102,17 @@ public class SortedSetDocValuesField extends Field {
    */
   public static Query newSlowExactQuery(String field, BytesRef value) {
     return newSlowRangeQuery(field, value, value, true, true);
+  }
+
+  /**
+   * Create a query that matches against a set of terms. This query is "slow" since it can't efficiently
+   * lead iteration, but operates as a "filter" using two-phase matching. This can be more efficient than
+   * creating a disjunction of terms when there are many terms or ANDed with a selective query. They are
+   * best used wrapped in an {@link IndexOrDocValuesQuery} alongside a standard {@link TermInSetQuery}.
+   */
+  public static Query newSlowContainsQuery(String field, Collection<BytesRef> terms) {
+    TermInSetQuery q = new TermInSetQuery(field, terms);
+    q.setRewriteMethod(DocValuesRewriteMethod.DOC_VALUES_REWRITE_METHOD);
+    return q;
   }
 }

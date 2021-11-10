@@ -112,7 +112,7 @@ public class SortedSetDocValuesField extends Field {
    * in an {@link IndexOrDocValuesQuery}, alongside a {@link TermInSetQuery} that uses the indexed
    * terms.
    */
-  public static Query newSlowContainsQuery(String field, Collection<BytesRef> terms) {
+  public static Query newSlowTermInSetQuery(String field, Collection<BytesRef> terms) {
     TermInSetQuery q = new TermInSetQuery(field, terms);
     q.setRewriteMethod(DocValuesRewriteMethod.DOC_VALUES_REWRITE_METHOD);
     return q;

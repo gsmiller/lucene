@@ -99,7 +99,7 @@ public class TestTermInSetQuery extends LuceneTestCase {
         final Query q2 = new TermInSetQuery(field, queryTerms);
         assertSameMatches(searcher, new BoostQuery(q1, boost), new BoostQuery(q2, boost), true);
 
-        Query q3 = SortedSetDocValuesField.newSlowContainsQuery(field, queryTerms);
+        Query q3 = SortedSetDocValuesField.newSlowTermInSetQuery(field, queryTerms);
         assertSameMatches(searcher, new BoostQuery(q1, boost), new BoostQuery(q3, boost), true);
       }
 

@@ -134,27 +134,20 @@ final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends
         // Estimate the cost. If the MTQ can provide its term count, we can do a better job
         // estimating.
         // Cost estimation reasoning is:
-        // 1. If we don't know how many query terms there are, we just assume a high ceiling where
-        // every doc with a value
-        //    for the field is a hit.
+        // 1. If we don't know how many query terms there are, we assume that every term could be
+        //    in the MTQ and estimate the work as the total docs across all terms.
         // 2. If we know how many query terms there are...
         //    2a. Assume every query term matches at least one document (queryTermsCount).
-        //    2b. Determine the total number of docs beyond the first one for each term since those
-        // are already accounted
-        //        for by queryTermsCount. That count provides a ceiling on the number of extra docs
-        // that could match.
-        //    2c. Limit cost by the total doc count for the field since it's a natural upper-bound
-        // on the cost.
+        //    2b. Determine the total number of docs beyond the first one for each term.
+        //        That count provides a ceiling on the number of extra docs that could match beyond
+        //        that first one. (We omit the first since it's already been counted in 2a).
         // See: LUCENE-10207
         final long cost;
         final int queryTermsCount = query.getTermsCount();
         if (queryTermsCount == -1) {
-          cost = indexTerms.getDocCount();
+          cost = indexTerms.getSumDocFreq();
         } else {
-          cost =
-              Math.min(
-                  indexTerms.getDocCount(),
-                  queryTermsCount + (indexTerms.getSumDocFreq() - indexTerms.size()));
+          cost = queryTermsCount + (indexTerms.getSumDocFreq() - indexTerms.size());
         }
 
         final Weight weight = this;

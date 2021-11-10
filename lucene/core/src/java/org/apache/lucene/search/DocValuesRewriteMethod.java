@@ -97,10 +97,9 @@ public final class DocValuesRewriteMethod extends MultiTermQuery.RewriteMethod {
 
         @Override
         public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
-          final SortedSetDocValues values =
-              DocValues.getSortedSet(context.reader(), query.getField());
-          if (values == null) {
-            return null;
+          final SortedSetDocValues values = DocValues.getSortedSet(context.reader(), query.field);
+          if (values.getValueCount() == 0) {
+            return null; // no values/docs so nothing can match
           }
 
           final Weight weight = this;

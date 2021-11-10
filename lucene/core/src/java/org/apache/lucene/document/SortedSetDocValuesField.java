@@ -18,7 +18,6 @@ package org.apache.lucene.document;
 
 import java.io.IOException;
 import java.util.Collection;
-
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.LeafReader;
@@ -72,8 +71,8 @@ public class SortedSetDocValuesField extends Field {
    *
    * <p><b>NOTE</b>: Such queries cannot efficiently advance to the next match, which makes them
    * slow if they are not ANDed with a selective query. As a consequence, they are best used wrapped
-   * in an {@link IndexOrDocValuesQuery}, alongside a range query that executes on points, such as
-   * {@link BinaryPoint#newRangeQuery}.
+   * in an {@link IndexOrDocValuesQuery}, alongside a {@link TermInSetQuery} containing all terms in
+   * the range.
    */
   public static Query newSlowRangeQuery(
       String field,
@@ -97,18 +96,21 @@ public class SortedSetDocValuesField extends Field {
    *
    * <p><b>NOTE</b>: Such queries cannot efficiently advance to the next match, which makes them
    * slow if they are not ANDed with a selective query. As a consequence, they are best used wrapped
-   * in an {@link IndexOrDocValuesQuery}, alongside a range query that executes on points, such as
-   * {@link BinaryPoint#newExactQuery}.
+   * in an {@link IndexOrDocValuesQuery}, alongside a {@link org.apache.lucene.search.TermQuery}.
    */
   public static Query newSlowExactQuery(String field, BytesRef value) {
     return newSlowRangeQuery(field, value, value, true, true);
   }
 
   /**
-   * Create a query that matches against a set of terms. This query is "slow" since it can't efficiently
-   * lead iteration, but operates as a "filter" using two-phase matching. This can be more efficient than
-   * creating a disjunction of terms when there are many terms or ANDed with a selective query. They are
-   * best used wrapped in an {@link IndexOrDocValuesQuery} alongside a standard {@link TermInSetQuery}.
+   * Create a query for matching against a set of {@link BytesRef} values.
+   *
+   * <p>This query also works with fields that have indexed {@link SortedDocValuesField}s.
+   *
+   * <p><b>NOTE</b>: Such queries cannot efficiently advance to the next match, which makes them
+   * slow if they are not ANDed with a selective query. As a consequence, they are best used wrapped
+   * in an {@link IndexOrDocValuesQuery}, alongside a {@link TermInSetQuery} that uses the indexed
+   * terms.
    */
   public static Query newSlowContainsQuery(String field, Collection<BytesRef> terms) {
     TermInSetQuery q = new TermInSetQuery(field, terms);

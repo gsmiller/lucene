@@ -85,10 +85,10 @@ final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends
     }
   }
 
-  final Q query;
+  protected final Q query;
 
   /** Wrap a {@link MultiTermQuery} as a Filter. */
-  MultiTermQueryConstantScoreWrapper(Q query) {
+  protected MultiTermQueryConstantScoreWrapper(Q query) {
     this.query = query;
   }
 
@@ -99,23 +99,23 @@ final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends
   }
 
   @Override
-  public boolean equals(final Object other) {
+  public final boolean equals(final Object other) {
     return sameClassAs(other)
         && query.equals(((MultiTermQueryConstantScoreWrapper<?>) other).query);
   }
 
   @Override
-  public int hashCode() {
+  public final int hashCode() {
     return 31 * classHash() + query.hashCode();
   }
 
   /** Returns the encapsulated query */
-  Q getQuery() {
+  public Q getQuery() {
     return query;
   }
 
   /** Returns the field name for this query */
-  String getField() {
+  public final String getField() {
     return query.getField();
   }
 
@@ -126,21 +126,78 @@ final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends
 
       @Override
       public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
-        return new MultiTermQueryScoreSupplier(searcher, context, query, this, score(), scoreMode);
+        final Terms indexTerms = context.reader().terms(query.getField());
+        if (indexTerms == null) {
+          return null;
+        }
+
+        // Estimate the cost. If the MTQ can provide its term count, we can do a better job
+        // estimating.
+        // Cost estimation reasoning is:
+        // 1. If we don't know how many query terms there are, we just assume a high ceiling where
+        // every doc with a value
+        //    for the field is a hit.
+        // 2. If we know how many query terms there are...
+        //    2a. Assume every query term matches at least one document (queryTermsCount).
+        //    2b. Determine the total number of docs beyond the first one for each term since those
+        // are already accounted
+        //        for by queryTermsCount. That count provides a ceiling on the number of extra docs
+        // that could match.
+        //    2c. Limit cost by the total doc count for the field since it's a natural upper-bound
+        // on the cost.
+        // See: LUCENE-10207
+        final long cost;
+        final int queryTermsCount = query.getTermsCount();
+        if (queryTermsCount == -1) {
+          cost = indexTerms.getDocCount();
+        } else {
+          cost =
+              Math.min(
+                  indexTerms.getDocCount(),
+                  queryTermsCount + (indexTerms.getSumDocFreq() - indexTerms.size()));
+        }
+
+        final Weight weight = this;
+        return new ScorerSupplier() {
+          @Override
+          public Scorer get(long leadCost) throws IOException {
+            WeightOrDocIdSet weightOrBitSet = rewrite(context, indexTerms);
+            if (weightOrBitSet.weight != null) {
+              return weightOrBitSet.weight.scorer(context);
+            } else {
+              return scorerForDocIdSet(weight, score(), scoreMode, weightOrBitSet.set);
+            }
+          }
+
+          @Override
+          public long cost() {
+            return cost;
+          }
+        };
       }
 
       @Override
       public Scorer scorer(LeafReaderContext context) throws IOException {
-        return scorerSupplier(context).get(Long.MAX_VALUE);
+        final ScorerSupplier scorerSupplier = scorerSupplier(context);
+        if (scorerSupplier == null) {
+          return null;
+        }
+        return scorerSupplier.get(Long.MAX_VALUE);
       }
 
       @Override
       public BulkScorer bulkScorer(LeafReaderContext context) throws IOException {
         final Terms indexTerms = context.reader().terms(query.getField());
-        final WeightOrDocIdSet weightOrBitSet = rewrite(searcher, context, score(), scoreMode, query, indexTerms);
+        if (indexTerms == null) {
+          return null;
+        }
+
+        final WeightOrDocIdSet weightOrBitSet = rewrite(context, indexTerms);
         if (weightOrBitSet.weight != null) {
+          // If we're using a Weight, let it provide its bulk scorer:
           return weightOrBitSet.weight.bulkScorer(context);
         } else {
+          // If we're using a pre-populated DocIdSet, produce a DefaultBulkScorer over it:
           final Scorer scorer = scorerForDocIdSet(this, score(), scoreMode, weightOrBitSet.set);
           if (scorer == null) {
             return null;
@@ -166,6 +223,81 @@ final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends
       public boolean isCacheable(LeafReaderContext ctx) {
         return true;
       }
+
+      /**
+       * On the given leaf context, try to either rewrite to a disjunction if there are few terms,
+       * or build a bitset containing matching docs.
+       */
+      private WeightOrDocIdSet rewrite(LeafReaderContext context, Terms indexTerms)
+          throws IOException {
+        assert indexTerms != null;
+
+        // Create a TermsEnum that will produce the intersection of the query terms with the indexed
+        // terms:
+        final TermsEnum termsEnum = query.getTermsEnum(indexTerms);
+        assert termsEnum != null;
+
+        // Collect terms up to BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD:
+        final List<TermAndState> collectedTerms = new ArrayList<>();
+        if (collectTerms(termsEnum, collectedTerms)) {
+          // If there were fewer than BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD terms, build a BQ:
+          final BooleanQuery.Builder bq = new BooleanQuery.Builder();
+          for (TermAndState t : collectedTerms) {
+            final TermStates termStates = new TermStates(searcher.getTopReaderContext());
+            termStates.register(t.state, context.ord, t.docFreq, t.totalTermFreq);
+            bq.add(new TermQuery(new Term(query.field, t.term), termStates), Occur.SHOULD);
+          }
+          final Query q = new ConstantScoreQuery(bq.build());
+          final Weight weight = searcher.rewrite(q).createWeight(searcher, scoreMode, score());
+          return new WeightOrDocIdSet(weight);
+        }
+
+        // More than BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD terms, so we'll build a bit set of the
+        // matching docs. First, go back through the terms already collected and add their docs:
+        PostingsEnum docs = null;
+        final DocIdSetBuilder builder = new DocIdSetBuilder(context.reader().maxDoc(), indexTerms);
+        if (collectedTerms.isEmpty() == false) {
+          final TermsEnum termsEnum2 = indexTerms.iterator();
+          for (TermAndState t : collectedTerms) {
+            termsEnum2.seekExact(t.term, t.state);
+            docs = termsEnum2.postings(docs, PostingsEnum.NONE);
+            builder.add(docs);
+          }
+        }
+
+        // Iterate the remaining terms and finish filling the bit set:
+        do {
+          // (remember that termsEnum was left positioned on the next term beyond the threshold):
+          docs = termsEnum.postings(docs, PostingsEnum.NONE);
+          builder.add(docs);
+        } while (termsEnum.next() != null);
+
+        return new WeightOrDocIdSet(builder.build());
+      }
+
+      /**
+       * Try to collect terms from the given terms enum and return true iff all terms could be
+       * collected. If {@code false} is returned, the enum is left positioned on the next term.
+       */
+      private boolean collectTerms(TermsEnum termsEnum, List<TermAndState> terms)
+          throws IOException {
+        final int threshold =
+            Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
+        for (int i = 0; i < threshold; i++) {
+          final BytesRef term = termsEnum.next();
+          if (term == null) {
+            return true;
+          }
+          final TermState state = termsEnum.termState();
+          terms.add(
+              new TermAndState(
+                  BytesRef.deepCopyOf(term),
+                  state,
+                  termsEnum.docFreq(),
+                  termsEnum.totalTermFreq()));
+        }
+        return termsEnum.next() == null;
+      }
     };
   }
 
@@ -176,86 +308,9 @@ final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends
     }
   }
 
-  /**
-   * On the given leaf context, try to either rewrite to a disjunction if there are few terms,
-   * or build a bitset containing matching docs.
-   */
-  private static WeightOrDocIdSet rewrite(IndexSearcher searcher,
-                                          LeafReaderContext context,
-                                          float score,
-                                          ScoreMode scoreMode,
-                                          MultiTermQuery query,
-                                          Terms indexTerms) throws IOException {
-    // [] If the field doesn't exist, we're done:
-    if (indexTerms == null) {
-      return new WeightOrDocIdSet((DocIdSet) null);
-    }
-
-    // [] Create a TermsEnum that intersects the query terms with the index terms:
-    final TermsEnum termsEnum = query.getTermsEnum(indexTerms);
-    assert termsEnum != null;
-
-    PostingsEnum docs = null;
-
-    // [] Collect terms up to BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD:
-    final List<TermAndState> collectedTerms = new ArrayList<>();
-    if (collectTerms(termsEnum, collectedTerms)) {
-      // [] If there were fewer than BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD terms, build a BQ:
-      BooleanQuery.Builder bq = new BooleanQuery.Builder();
-      for (TermAndState t : collectedTerms) {
-        final TermStates termStates = new TermStates(searcher.getTopReaderContext());
-        termStates.register(t.state, context.ord, t.docFreq, t.totalTermFreq);
-        bq.add(new TermQuery(new Term(query.field, t.term), termStates), Occur.SHOULD);
-      }
-      Query q = new ConstantScoreQuery(bq.build());
-      final Weight weight = searcher.rewrite(q).createWeight(searcher, scoreMode, score);
-      return new WeightOrDocIdSet(weight);
-    }
-
-    // [] More than BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD terms, so we'll build a bit set of the matching docs. First,
-    // go back through the terms already collected and add their docs:
-    DocIdSetBuilder builder = new DocIdSetBuilder(context.reader().maxDoc(), indexTerms);
-    if (collectedTerms.isEmpty() == false) {
-      TermsEnum termsEnum2 = indexTerms.iterator();
-      for (TermAndState t : collectedTerms) {
-        termsEnum2.seekExact(t.term, t.state);
-        docs = termsEnum2.postings(docs, PostingsEnum.NONE);
-        builder.add(docs);
-      }
-    }
-
-    // [] Iterate the remaining terms and finish filling the bit set:
-    do {
-      docs = termsEnum.postings(docs, PostingsEnum.NONE);
-      builder.add(docs);
-    } while (termsEnum.next() != null);
-
-    return new WeightOrDocIdSet(builder.build());
-  }
-
-  /**
-   * Try to collect terms from the given terms enum and return true iff all terms could be
-   * collected. If {@code false} is returned, the enum is left positioned on the next term.
-   */
-  private static boolean collectTerms(TermsEnum termsEnum, List<TermAndState> terms) throws IOException {
-    final int threshold = Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
-    for (int i = 0; i < threshold; i++) {
-      BytesRef term = termsEnum.next();
-      if (term == null) {
-        return true;
-      }
-      TermState state = termsEnum.termState();
-      terms.add(
-          new TermAndState(
-              BytesRef.deepCopyOf(term),
-              state,
-              termsEnum.docFreq(),
-              termsEnum.totalTermFreq()));
-    }
-    return termsEnum.next() == null;
-  }
-
-  private static Scorer scorerForDocIdSet(Weight weight, float score, ScoreMode scoreMode, DocIdSet set) throws IOException {
+  /** Provide a ConstantScoreScorer over the pre-populated DocIdSet */
+  private static Scorer scorerForDocIdSet(
+      Weight weight, float score, ScoreMode scoreMode, DocIdSet set) throws IOException {
     if (set == null) {
       return null;
     }
@@ -264,67 +319,5 @@ final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends
       return null;
     }
     return new ConstantScoreScorer(weight, score, scoreMode, disi);
-  }
-
-  private static class MultiTermQueryScoreSupplier extends ScorerSupplier {
-    private final IndexSearcher searcher;
-    private final LeafReaderContext context;
-    private final MultiTermQuery query;
-    private final Weight weight;
-    private final float score;
-    private final ScoreMode scoreMode;
-    private final Terms indexTerms;
-    private final long cost;
-
-    MultiTermQueryScoreSupplier(IndexSearcher searcher,
-                                LeafReaderContext context,
-                                MultiTermQuery query,
-                                Weight weight,
-                                float score,
-                                ScoreMode scoreMode) throws IOException {
-      this.searcher = searcher;
-      this.context = context;
-      this.query = query;
-      this.weight = weight;
-      this.score = score;
-      this.scoreMode = scoreMode;
-
-      // [] Load the indexed terms for the field:
-      indexTerms = context.reader().terms(query.getField());
-
-      // [] Estimate the cost. If the MTQ can provide its term count, we can do a better job estimating.
-      // Cost estimation reasoning is:
-      // 1. If we don't know how many query terms there are, we just assume a high ceiling where every doc with a value
-      //    for the field is a hit.
-      // 2. If we know how many query terms there are...
-      //    2a. Assume every query term matches at least one document (queryTermsCount).
-      //    2b. Determine the total number of docs beyond the first one for each term since those are already accounted
-      //        for by queryTermsCount. That count provides a ceiling on the number of extra docs that could match.
-      //    2c. Limit cost by the total doc count for the field since it's a natural upper-bound on the cost.
-      // See: LUCENE-10207
-      int queryTermsCount = query.getTermsCount();
-      if (indexTerms == null) {
-        cost = 0;  // field doesn't exist
-      } else if (queryTermsCount == -1) {
-        cost = indexTerms.getDocCount();
-      } else {
-        cost = Math.min(indexTerms.getDocCount(), queryTermsCount + (indexTerms.getSumDocFreq() - indexTerms.size()));
-      }
-    }
-
-    @Override
-    public Scorer get(long leadCost) throws IOException {
-      WeightOrDocIdSet weightOrBitSet = rewrite(searcher, context, score, scoreMode, query, indexTerms);
-      if (weightOrBitSet.weight != null) {
-        return weightOrBitSet.weight.scorer(context);
-      } else {
-        return scorerForDocIdSet(weight, score, scoreMode, weightOrBitSet.set);
-      }
-    }
-
-    @Override
-    public long cost() {
-      return cost;
-    }
   }
 }

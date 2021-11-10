@@ -35,7 +35,8 @@ import org.apache.lucene.util.LongBitSet;
  */
 public final class DocValuesRewriteMethod extends MultiTermQuery.RewriteMethod {
 
-  public static final DocValuesRewriteMethod DOC_VALUES_REWRITE_METHOD = new DocValuesRewriteMethod();
+  public static final DocValuesRewriteMethod DOC_VALUES_REWRITE_METHOD =
+      new DocValuesRewriteMethod();
 
   @Override
   public Query rewrite(IndexReader reader, MultiTermQuery query) {
@@ -80,8 +81,8 @@ public final class DocValuesRewriteMethod extends MultiTermQuery.RewriteMethod {
     }
 
     @Override
-    public Weight createWeight(IndexSearcher searcher, ScoreMode scoreMode, float boost) throws IOException {
-
+    public Weight createWeight(IndexSearcher searcher, ScoreMode scoreMode, float boost)
+        throws IOException {
       return new ConstantScoreWeight(this, boost) {
 
         @Override
@@ -91,22 +92,160 @@ public final class DocValuesRewriteMethod extends MultiTermQuery.RewriteMethod {
               query.field,
               () ->
                   DisjunctionMatchesIterator.fromTermsEnum(
-                      context, doc, query, query.field, getTermsEnum(query, values)));
+                      context, doc, query, query.field, getTermsEnum(values)));
         }
 
         @Override
         public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
-          return new DocValuesTermInSetScoreSupplier(context, query, this, score(), scoreMode);
+          final SortedSetDocValues values =
+              DocValues.getSortedSet(context.reader(), query.getField());
+          if (values == null) {
+            return null;
+          }
+
+          // Estimate the cost:
+          final long cost;
+          final int queryTermsCount = query.getTermsCount();
+          if (queryTermsCount == -1) {
+            // If the query doesn't "know" up-front how many terms it specifies, we assume a
+            // pessimistic case where all docs in the doc values match:
+            cost = values.cost();
+          } else {
+            cost =
+                Math.min(values.cost(), queryTermsCount + (values.cost() - values.getValueCount()));
+          }
+
+          final Weight weight = this;
+          return new ScorerSupplier() {
+            @Override
+            public Scorer get(long leadCost) throws IOException {
+              // Create a TermsEnum that will provide the intersection of the terms specified in the
+              // query with the values present in the doc values:
+              final TermsEnum termsEnum = getTermsEnum(values);
+
+              // Create a bit set for the "term set" ordinals (these are the terms provided by the
+              // query that are actually present in the doc values field):
+              final LongBitSet termSetOrdinals = new LongBitSet(values.getValueCount());
+              while (termsEnum.next() != null) {
+                final long ord = termsEnum.ord();
+                if (ord >= 0) {
+                  termSetOrdinals.set(ord);
+                }
+              }
+
+              final SortedDocValues singleton = DocValues.unwrapSingleton(values);
+              final TwoPhaseIterator iterator;
+              if (singleton != null) {
+                iterator =
+                    new TwoPhaseIterator(singleton) {
+                      @Override
+                      public boolean matches() throws IOException {
+                        return termSetOrdinals.get(singleton.ordValue());
+                      }
+
+                      @Override
+                      public float matchCost() {
+                        return 3; // lookup in a bitset
+                      }
+                    };
+              } else {
+                iterator =
+                    new TwoPhaseIterator(values) {
+                      @Override
+                      public boolean matches() throws IOException {
+                        for (long ord = values.nextOrd();
+                            ord != SortedSetDocValues.NO_MORE_ORDS;
+                            ord = values.nextOrd()) {
+                          if (termSetOrdinals.get(ord)) {
+                            return true;
+                          }
+                        }
+                        return false;
+                      }
+
+                      @Override
+                      public float matchCost() {
+                        return 3; // lookup in a bitset
+                      }
+                    };
+              }
+
+              return new ConstantScoreScorer(weight, score(), scoreMode, iterator);
+            }
+
+            @Override
+            public long cost() {
+              return cost;
+            }
+          };
         }
 
         @Override
         public Scorer scorer(LeafReaderContext context) throws IOException {
-          return scorerSupplier(context).get(Long.MAX_VALUE);
+          final ScorerSupplier scorerSupplier = scorerSupplier(context);
+          if (scorerSupplier == null) {
+            return null;
+          }
+          return scorerSupplier.get(Long.MAX_VALUE);
         }
 
         @Override
         public boolean isCacheable(LeafReaderContext ctx) {
           return DocValues.isCacheable(ctx, query.field);
+        }
+
+        /**
+         * Create a TermsEnum that provides the intersection of the query terms with the terms
+         * present in the doc values.
+         */
+        private TermsEnum getTermsEnum(SortedSetDocValues values) throws IOException {
+          return query.getTermsEnum(
+              new Terms() {
+                @Override
+                public TermsEnum iterator() throws IOException {
+                  return values.termsEnum();
+                }
+
+                @Override
+                public long getSumTotalTermFreq() {
+                  throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public long getSumDocFreq() {
+                  throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public int getDocCount() {
+                  throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public long size() {
+                  return -1;
+                }
+
+                @Override
+                public boolean hasFreqs() {
+                  return false;
+                }
+
+                @Override
+                public boolean hasOffsets() {
+                  return false;
+                }
+
+                @Override
+                public boolean hasPositions() {
+                  return false;
+                }
+
+                @Override
+                public boolean hasPayloads() {
+                  return false;
+                }
+              });
         }
       };
     }
@@ -120,146 +259,5 @@ public final class DocValuesRewriteMethod extends MultiTermQuery.RewriteMethod {
   @Override
   public int hashCode() {
     return 641;
-  }
-
-  private static TermsEnum getTermsEnum(MultiTermQuery query, SortedSetDocValues values) throws IOException {
-    return query.getTermsEnum(
-        new Terms() {
-
-          @Override
-          public TermsEnum iterator() throws IOException {
-            return values.termsEnum();
-          }
-
-          @Override
-          public long getSumTotalTermFreq() {
-            throw new UnsupportedOperationException();
-          }
-
-          @Override
-          public long getSumDocFreq() {
-            throw new UnsupportedOperationException();
-          }
-
-          @Override
-          public int getDocCount() {
-            throw new UnsupportedOperationException();
-          }
-
-          @Override
-          public long size() {
-            return -1;
-          }
-
-          @Override
-          public boolean hasFreqs() {
-            return false;
-          }
-
-          @Override
-          public boolean hasOffsets() {
-            return false;
-          }
-
-          @Override
-          public boolean hasPositions() {
-            return false;
-          }
-
-          @Override
-          public boolean hasPayloads() {
-            return false;
-          }
-        });
-  }
-
-  private static class DocValuesTermInSetScoreSupplier extends ScorerSupplier {
-    private final MultiTermQuery query;
-    private final Weight weight;
-    private final float score;
-    private final ScoreMode scoreMode;
-    private final SortedSetDocValues values;
-    private final long cost;
-
-    DocValuesTermInSetScoreSupplier(LeafReaderContext context,
-                                    MultiTermQuery query,
-                                    Weight weight,
-                                    float score,
-                                    ScoreMode scoreMode) throws IOException {
-      this.query = query;
-      this.weight = weight;
-      this.score = score;
-      this.scoreMode = scoreMode;
-
-      // [] Load the doc values:
-      values = DocValues.getSortedSet(context.reader(), query.getField());
-
-      int queryTermsCount = query.getTermsCount();
-      if (values == null) {
-        cost = 0;  // field doesn't exist
-      } else if (queryTermsCount == -1) {
-        cost = values.cost();
-      } else {
-        cost = Math.min(values.cost(), queryTermsCount + (values.cost() - values.getValueCount()));
-      }
-    }
-
-    @Override
-    public Scorer get(long leadCost) throws IOException {
-      // [] Create a TermsEnum that intersects the terms specified in the MTQ with the terms actually found in
-      // the doc values:
-      final TermsEnum termsEnum = getTermsEnum(query, values);
-
-      // [] Create a bit set for the "term set" ordinals (these are the terms provided by the MTQ that are actually
-      // present in the doc values field):
-      final LongBitSet termSetOrdinals = new LongBitSet(values.getValueCount());
-      while (termsEnum.next() != null) {
-        long ord = termsEnum.ord();
-        if (ord >= 0) {
-          termSetOrdinals.set(ord);
-        }
-      }
-
-      final SortedDocValues singleton = DocValues.unwrapSingleton(values);
-      final TwoPhaseIterator iterator;
-      if (singleton != null) {
-        iterator = new TwoPhaseIterator(singleton) {
-          @Override
-          public boolean matches() throws IOException {
-            long ord = singleton.ordValue();
-            return termSetOrdinals.get(ord);
-          }
-
-          @Override
-          public float matchCost() {
-            return 3; // lookup in a bitset
-          }
-        };
-      } else {
-        iterator = new TwoPhaseIterator(values) {
-          @Override
-          public boolean matches() throws IOException {
-            for (long ord = values.nextOrd(); ord != SortedSetDocValues.NO_MORE_ORDS; ord = values.nextOrd()) {
-              if (termSetOrdinals.get(ord)) {
-                return true;
-              }
-            }
-            return false;
-          }
-
-          @Override
-          public float matchCost() {
-            return 3; // lookup in a bitset
-          }
-        };
-      }
-
-      return new ConstantScoreScorer(weight, score, scoreMode, iterator);
-    }
-
-    @Override
-    public long cost() {
-      return cost;
-    }
   }
 }

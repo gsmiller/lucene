@@ -103,18 +103,6 @@ public final class DocValuesRewriteMethod extends MultiTermQuery.RewriteMethod {
             return null;
           }
 
-          // Estimate the cost:
-          final long cost;
-          final int queryTermsCount = query.getTermsCount();
-          if (queryTermsCount == -1) {
-            // If the query doesn't "know" up-front how many terms it specifies, we assume a
-            // pessimistic case where all docs in the doc values match:
-            cost = values.cost();
-          } else {
-            cost =
-                Math.min(values.cost(), queryTermsCount + (values.cost() - values.getValueCount()));
-          }
-
           final Weight weight = this;
           return new ScorerSupplier() {
             @Override
@@ -175,7 +163,9 @@ public final class DocValuesRewriteMethod extends MultiTermQuery.RewriteMethod {
 
             @Override
             public long cost() {
-              return cost;
+              // We have no prior knowledge of how many docs might match for any given query term,
+              // so we assume that all docs with a value could be a match:
+              return values.cost();
             }
           };
         }

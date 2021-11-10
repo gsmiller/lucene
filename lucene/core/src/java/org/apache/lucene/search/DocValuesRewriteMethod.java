@@ -95,6 +95,105 @@ public final class DocValuesRewriteMethod extends MultiTermQuery.RewriteMethod {
                       context, doc, query, query.field, getTermsEnum(values)));
         }
 
+        @Override
+        public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
+          final SortedSetDocValues values =
+              DocValues.getSortedSet(context.reader(), query.getField());
+          if (values == null) {
+            return null;
+          }
+
+          // Estimate the cost:
+          final long cost;
+          final int queryTermsCount = query.getTermsCount();
+          if (queryTermsCount == -1) {
+            // If the query doesn't "know" up-front how many terms it specifies, we assume a
+            // pessimistic case where all docs in the doc values match:
+            cost = values.cost();
+          } else {
+            cost =
+                Math.min(values.cost(), queryTermsCount + (values.cost() - values.getValueCount()));
+          }
+
+          final Weight weight = this;
+          return new ScorerSupplier() {
+            @Override
+            public Scorer get(long leadCost) throws IOException {
+              // Create a TermsEnum that will provide the intersection of the terms specified in the
+              // query with the values present in the doc values:
+              final TermsEnum termsEnum = getTermsEnum(values);
+
+              // Create a bit set for the "term set" ordinals (these are the terms provided by the
+              // query that are actually present in the doc values field):
+              final LongBitSet termSetOrdinals = new LongBitSet(values.getValueCount());
+              while (termsEnum.next() != null) {
+                final long ord = termsEnum.ord();
+                if (ord >= 0) {
+                  termSetOrdinals.set(ord);
+                }
+              }
+
+              final SortedDocValues singleton = DocValues.unwrapSingleton(values);
+              final TwoPhaseIterator iterator;
+              if (singleton != null) {
+                iterator =
+                    new TwoPhaseIterator(singleton) {
+                      @Override
+                      public boolean matches() throws IOException {
+                        return termSetOrdinals.get(singleton.ordValue());
+                      }
+
+                      @Override
+                      public float matchCost() {
+                        return 3; // lookup in a bitset
+                      }
+                    };
+              } else {
+                iterator =
+                    new TwoPhaseIterator(values) {
+                      @Override
+                      public boolean matches() throws IOException {
+                        for (long ord = values.nextOrd();
+                            ord != SortedSetDocValues.NO_MORE_ORDS;
+                            ord = values.nextOrd()) {
+                          if (termSetOrdinals.get(ord)) {
+                            return true;
+                          }
+                        }
+                        return false;
+                      }
+
+                      @Override
+                      public float matchCost() {
+                        return 3; // lookup in a bitset
+                      }
+                    };
+              }
+
+              return new ConstantScoreScorer(weight, score(), scoreMode, iterator);
+            }
+
+            @Override
+            public long cost() {
+              return cost;
+            }
+          };
+        }
+
+        @Override
+        public Scorer scorer(LeafReaderContext context) throws IOException {
+          final ScorerSupplier scorerSupplier = scorerSupplier(context);
+          if (scorerSupplier == null) {
+            return null;
+          }
+          return scorerSupplier.get(Long.MAX_VALUE);
+        }
+
+        @Override
+        public boolean isCacheable(LeafReaderContext ctx) {
+          return DocValues.isCacheable(ctx, query.field);
+        }
+
         /**
          * Create a TermsEnum that provides the intersection of the query terms with the terms
          * present in the doc values.
@@ -102,7 +201,6 @@ public final class DocValuesRewriteMethod extends MultiTermQuery.RewriteMethod {
         private TermsEnum getTermsEnum(SortedSetDocValues values) throws IOException {
           return query.getTermsEnum(
               new Terms() {
-
                 @Override
                 public TermsEnum iterator() throws IOException {
                   return values.termsEnum();
@@ -148,76 +246,6 @@ public final class DocValuesRewriteMethod extends MultiTermQuery.RewriteMethod {
                   return false;
                 }
               });
-        }
-
-        @Override
-        public Scorer scorer(LeafReaderContext context) throws IOException {
-          final SortedSetDocValues values = DocValues.getSortedSet(context.reader(), query.field);
-
-          // Create a TermsEnum that will provide the intersection of the terms specified in the
-          // query with the values present in the doc values:
-          final TermsEnum termsEnum = getTermsEnum(values);
-          assert termsEnum != null;
-          if (termsEnum.next() == null) {
-            return null; // no matching terms
-          }
-
-          // Create a bit set for the "term set" ordinals (these are the terms provided by the
-          // query that are actually present in the doc values field). Cannot use FixedBitSet
-          // because we require long index (ord):
-          final LongBitSet termSetOrdinals = new LongBitSet(values.getValueCount());
-          do {
-            long ord = termsEnum.ord();
-            if (ord >= 0) {
-              termSetOrdinals.set(ord);
-            }
-          } while (termsEnum.next() != null);
-
-          // It's a bit more efficient to use SortedDocValues directly if we're actually working
-          // with a singleton:
-          final SortedDocValues singleton = DocValues.unwrapSingleton(values);
-          final TwoPhaseIterator iterator;
-          if (singleton != null) {
-            iterator =
-                new TwoPhaseIterator(singleton) {
-                  @Override
-                  public boolean matches() throws IOException {
-                    return termSetOrdinals.get(singleton.ordValue());
-                  }
-
-                  @Override
-                  public float matchCost() {
-                    return 3; // lookup in a bitset
-                  }
-                };
-          } else {
-            iterator =
-                new TwoPhaseIterator(values) {
-                  @Override
-                  public boolean matches() throws IOException {
-                    for (long ord = values.nextOrd();
-                        ord != SortedSetDocValues.NO_MORE_ORDS;
-                        ord = values.nextOrd()) {
-                      if (termSetOrdinals.get(ord)) {
-                        return true;
-                      }
-                    }
-                    return false;
-                  }
-
-                  @Override
-                  public float matchCost() {
-                    return 3; // lookup in a bitset
-                  }
-                };
-          }
-
-          return new ConstantScoreScorer(this, score(), scoreMode, iterator);
-        }
-
-        @Override
-        public boolean isCacheable(LeafReaderContext ctx) {
-          return DocValues.isCacheable(ctx, query.field);
         }
       };
     }

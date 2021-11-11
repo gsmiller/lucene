@@ -27,7 +27,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field.Store;
-import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.FilterDirectoryReader;
@@ -66,7 +65,6 @@ public class TestTermInSetQuery extends LuceneTestCase {
         Document doc = new Document();
         final BytesRef term = allTerms.get(random().nextInt(allTerms.size()));
         doc.add(new StringField(field, term, Store.NO));
-        doc.add(new SortedSetDocValuesField(field, term));
         iw.addDocument(doc);
       }
       if (numTerms > 1 && random().nextBoolean()) {
@@ -98,9 +96,6 @@ public class TestTermInSetQuery extends LuceneTestCase {
         final Query q1 = new ConstantScoreQuery(bq.build());
         final Query q2 = new TermInSetQuery(field, queryTerms);
         assertSameMatches(searcher, new BoostQuery(q1, boost), new BoostQuery(q2, boost), true);
-
-        Query q3 = SortedSetDocValuesField.newSlowTermInSetQuery(field, queryTerms);
-        assertSameMatches(searcher, new BoostQuery(q1, boost), new BoostQuery(q3, boost), true);
       }
 
       reader.close();

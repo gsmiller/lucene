@@ -20,7 +20,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.LongPoint;
@@ -96,7 +95,8 @@ public class TestDocValuesQueries extends LuceneTestCase {
       iw.close();
 
       if (reader.numDocs() == 0) {
-        // should be very rare, but just in case all docs got the same term, and we deleted docs with that term:
+        // should be very rare, but just in case all docs got the same term, and we deleted docs
+        // with that term:
         IOUtils.close(reader, dir);
         continue;
       }

@@ -155,11 +155,21 @@ final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends
           @Override
           public Scorer get(long leadCost) throws IOException {
             WeightOrDocIdSet weightOrBitSet = rewrite(context, indexTerms);
+            final Scorer scorer;
             if (weightOrBitSet.weight != null) {
-              return weightOrBitSet.weight.scorer(context);
+              scorer = weightOrBitSet.weight.scorer(context);
             } else {
-              return scorerForDocIdSet(weight, score(), scoreMode, weightOrBitSet.set);
+              scorer = scorerForDocIdSet(weight, score(), scoreMode, weightOrBitSet.set);
             }
+
+            // It's against the API contract to return a null scorer from a non-null ScoreSupplier.
+            // So if our ScoreSupplier was non-null (i.e., thought there might be hits) but we now
+            // find that there are actually no hits, we need to return an empty Scorer as opposed
+            // to null:
+            return Objects.requireNonNullElseGet(
+                scorer,
+                () ->
+                    new ConstantScoreScorer(weight, score(), scoreMode, DocIdSetIterator.empty()));
           }
 
           @Override

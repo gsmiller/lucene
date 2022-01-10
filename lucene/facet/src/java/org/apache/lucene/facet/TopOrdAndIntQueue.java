@@ -39,6 +39,10 @@ public class TopOrdAndIntQueue extends PriorityQueue<TopOrdAndIntQueue.OrdAndVal
     super(topN);
   }
 
+  public TopOrdAndIntQueue(int topN, OrdAndValue[] elements, int len) {
+    super(topN, elements, len);
+  }
+
   @Override
   protected boolean lessThan(OrdAndValue a, OrdAndValue b) {
     if (a.value < b.value) {

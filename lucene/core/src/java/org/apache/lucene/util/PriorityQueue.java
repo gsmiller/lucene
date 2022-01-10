@@ -16,6 +16,7 @@
  */
 package org.apache.lucene.util;
 
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.function.Supplier;
@@ -36,6 +37,37 @@ public abstract class PriorityQueue<T> implements Iterable<T> {
   private int size = 0;
   private final int maxSize;
   private final T[] heap;
+
+  public PriorityQueue(int maxSize, T[] elements, int len) {
+    this(maxSize);
+
+    // TODO: This modifies elements in-place. Should either copy or make this very clear to the caller.
+
+    int half = len >>> 1;
+    int i = half - 1;
+    for (; i >= 0; i--) {
+      int k = i;
+      T key = elements[k];
+      while (k < half) {
+        int child = (k << 1) + 1;
+        int right = child + 1;
+        T c = elements[child];
+        if (right < len && lessThan(elements[right], c)) {
+          c = elements[right];
+          child = right;
+        }
+        if (lessThan(c, key) == false) {
+          break;
+        }
+        elements[k] = c;
+        k = child;
+      }
+      elements[k] = key;
+    }
+
+    size = Math.min(maxSize, len);
+    System.arraycopy(elements, 0, heap, 1, size);
+  }
 
   /** Create an empty priority queue of the configured size. */
   public PriorityQueue(int maxSize) {

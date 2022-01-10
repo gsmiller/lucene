@@ -174,10 +174,6 @@ public abstract class IntTaxonomyFacets extends TaxonomyFacets {
       return null;
     }
 
-    TopOrdAndIntQueue q = new TopOrdAndIntQueue(Math.min(taxoReader.getSize(), topN));
-
-    int bottomValue = 0;
-
     int totValue = 0;
     int childCount = 0;
 
@@ -186,27 +182,25 @@ public abstract class IntTaxonomyFacets extends TaxonomyFacets {
     // TODO: would be faster if we had a "get the following children" API?  then we
     // can make a single pass over the hashmap
 
+    int idx = 0;
+    TopOrdAndIntQueue.OrdAndValue[] all;
     if (sparseValues != null) {
+      all = new TopOrdAndIntQueue.OrdAndValue[sparseValues.size()];
       for (IntIntCursor c : sparseValues) {
         int count = c.value;
         int ord = c.key;
         if (parents[ord] == dimOrd && count > 0) {
           totValue += count;
           childCount++;
-          if (count > bottomValue) {
-            if (reuse == null) {
-              reuse = new TopOrdAndIntQueue.OrdAndValue();
-            }
-            reuse.ord = ord;
-            reuse.value = count;
-            reuse = q.insertWithOverflow(reuse);
-            if (q.size() == topN) {
-              bottomValue = q.top().value;
-            }
-          }
+          TopOrdAndIntQueue.OrdAndValue e = new TopOrdAndIntQueue.OrdAndValue();
+          e.ord = ord;
+          e.value = count;
+          all[idx] = e;
+          idx++;
         }
       }
     } else {
+      all = new TopOrdAndIntQueue.OrdAndValue[values.length];
       int[] children = getChildren();
       int[] siblings = getSiblings();
       int ord = children[dimOrd];
@@ -215,22 +209,18 @@ public abstract class IntTaxonomyFacets extends TaxonomyFacets {
         if (value > 0) {
           totValue += value;
           childCount++;
-          if (value > bottomValue) {
-            if (reuse == null) {
-              reuse = new TopOrdAndIntQueue.OrdAndValue();
-            }
-            reuse.ord = ord;
-            reuse.value = value;
-            reuse = q.insertWithOverflow(reuse);
-            if (q.size() == topN) {
-              bottomValue = q.top().value;
-            }
-          }
+          TopOrdAndIntQueue.OrdAndValue e = new TopOrdAndIntQueue.OrdAndValue();
+          e.ord = ord;
+          e.value = value;
+          all[idx] = e;
+          idx++;
         }
 
         ord = siblings[ord];
       }
     }
+
+    TopOrdAndIntQueue q = new TopOrdAndIntQueue(Math.min(taxoReader.getSize(), topN), all, idx);
 
     if (totValue == 0) {
       return null;

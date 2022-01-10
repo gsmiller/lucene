@@ -31,6 +31,7 @@ import org.apache.lucene.facet.FacetsCollector.MatchingDocs;
 import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.LabelAndValue;
 import org.apache.lucene.facet.TopOrdAndIntQueue;
+import org.apache.lucene.facet.TopOrdAndIntQueue.OrdAndValue;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesReaderState.DimTree;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesReaderState.OrdRange;
 import org.apache.lucene.index.DocValues;
@@ -49,6 +50,7 @@ import org.apache.lucene.search.MatchAllDocsQuery;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.LongValues;
+import org.apache.lucene.util.PriorityQueue.Builder;
 
 /**
  * Compute facets counts from previously indexed {@link SortedSetDocValuesFacetField}, without
@@ -75,6 +77,14 @@ public class SortedSetDocValuesFacetCounts extends Facets {
   final SortedSetDocValues dv;
   final String field;
   final int[] counts;
+
+  static final Comparator<OrdAndValue> ordAndValueComparator = (a, b) -> {
+    int cmp = Integer.compare(a.value, b.value);
+    if (cmp == 0) {
+      cmp = -Integer.compare(a.ord, b.ord);
+    }
+    return cmp;
+  };
 
   private static final String[] emptyPath = new String[0];
 
@@ -146,46 +156,30 @@ public class SortedSetDocValuesFacetCounts extends Facets {
       int topN)
       throws IOException {
 
-    TopOrdAndIntQueue q = null;
-
-    int bottomCount = 0;
-
     int dimCount = 0;
     int childCount = 0;
 
-    TopOrdAndIntQueue.OrdAndValue reuse = null;
+    Builder<OrdAndValue> pqBuilder = new Builder<>(ordAndValueComparator, topN);
     while (childOrds.hasNext()) {
       int ord = childOrds.next();
       if (counts[ord] > 0) {
         dimCount += counts[ord];
         childCount++;
-        if (counts[ord] > bottomCount) {
-          if (reuse == null) {
-            reuse = new TopOrdAndIntQueue.OrdAndValue();
-          }
-          reuse.ord = ord;
-          reuse.value = counts[ord];
-          if (q == null) {
-            // Lazy init, so we don't create this for the
-            // sparse case unnecessarily
-            q = new TopOrdAndIntQueue(topN);
-          }
-          reuse = q.insertWithOverflow(reuse);
-          if (q.size() == topN) {
-            bottomCount = q.top().value;
-          }
-        }
+        TopOrdAndIntQueue.OrdAndValue e = new TopOrdAndIntQueue.OrdAndValue();
+        e.ord = ord;
+        e.value = counts[ord];
+        pqBuilder.add(e);
       }
     }
 
-    if (q == null) {
+    if (childCount == 0) {
       return null;
     }
 
-    LabelAndValue[] labelValues = new LabelAndValue[q.size()];
-    for (int i = labelValues.length - 1; i >= 0; i--) {
-      TopOrdAndIntQueue.OrdAndValue ordAndValue = q.pop();
-      assert ordAndValue != null;
+    List<OrdAndValue> topResults = pqBuilder.getSorted();
+    LabelAndValue[] labelValues = new LabelAndValue[topResults.size()];
+    for (int i = 0; i < topResults.size(); i++) {
+      OrdAndValue ordAndValue = topResults.get(i);
       final BytesRef term = dv.lookupOrd(ordAndValue.ord);
       String[] parts = FacetsConfig.stringToPath(term.utf8ToString());
       labelValues[i] = new LabelAndValue(parts[parts.length - 1], ordAndValue.value);

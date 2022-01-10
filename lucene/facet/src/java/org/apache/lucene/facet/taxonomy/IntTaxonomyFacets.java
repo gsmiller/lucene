@@ -19,6 +19,8 @@ package org.apache.lucene.facet.taxonomy;
 import com.carrotsearch.hppc.IntIntHashMap;
 import com.carrotsearch.hppc.cursors.IntIntCursor;
 import java.io.IOException;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import org.apache.lucene.facet.FacetResult;
 import org.apache.lucene.facet.FacetsCollector;
@@ -27,6 +29,8 @@ import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.FacetsConfig.DimConfig;
 import org.apache.lucene.facet.LabelAndValue;
 import org.apache.lucene.facet.TopOrdAndIntQueue;
+import org.apache.lucene.facet.TopOrdAndIntQueue.OrdAndValue;
+import org.apache.lucene.util.PriorityQueue.Builder;
 
 /** Base class for all taxonomy-based facets that aggregate to a per-ords int[]. */
 abstract class IntTaxonomyFacets extends TaxonomyFacets {
@@ -36,6 +40,14 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
 
   /** Sparse ordinal values. */
   final IntIntHashMap sparseValues;
+
+  static final Comparator<OrdAndValue> ordAndValueComparator = (a, b) -> {
+    int cmp = Integer.compare(a.value, b.value);
+    if (cmp == 0) {
+      cmp = -Integer.compare(a.ord, b.ord);
+    }
+    return cmp;
+  };
 
   /** Sole constructor. */
   IntTaxonomyFacets(
@@ -159,10 +171,6 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
       return null;
     }
 
-    TopOrdAndIntQueue q = new TopOrdAndIntQueue(Math.min(taxoReader.getSize(), topN));
-
-    int bottomValue = 0;
-
     int totValue = 0;
     int childCount = 0;
 
@@ -171,6 +179,7 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
     // TODO: would be faster if we had a "get the following children" API?  then we
     // can make a single pass over the hashmap
 
+    Builder<OrdAndValue> pqBuilder = new Builder<>(ordAndValueComparator, topN);
     if (sparseValues != null) {
       for (IntIntCursor c : sparseValues) {
         int count = c.value;
@@ -178,17 +187,10 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
         if (parents[ord] == dimOrd && count > 0) {
           totValue += count;
           childCount++;
-          if (count > bottomValue) {
-            if (reuse == null) {
-              reuse = new TopOrdAndIntQueue.OrdAndValue();
-            }
-            reuse.ord = ord;
-            reuse.value = count;
-            reuse = q.insertWithOverflow(reuse);
-            if (q.size() == topN) {
-              bottomValue = q.top().value;
-            }
-          }
+          TopOrdAndIntQueue.OrdAndValue e = new TopOrdAndIntQueue.OrdAndValue();
+          e.ord = ord;
+          e.value = count;
+          pqBuilder.add(e);
         }
       }
     } else {
@@ -200,17 +202,10 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
         if (value > 0) {
           totValue += value;
           childCount++;
-          if (value > bottomValue) {
-            if (reuse == null) {
-              reuse = new TopOrdAndIntQueue.OrdAndValue();
-            }
-            reuse.ord = ord;
-            reuse.value = value;
-            reuse = q.insertWithOverflow(reuse);
-            if (q.size() == topN) {
-              bottomValue = q.top().value;
-            }
-          }
+          TopOrdAndIntQueue.OrdAndValue e = new TopOrdAndIntQueue.OrdAndValue();
+          e.ord = ord;
+          e.value = value;
+          pqBuilder.add(e);
         }
 
         ord = siblings[ord];
@@ -232,12 +227,13 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
       // Our sum'd dim value is accurate, so we keep it
     }
 
-    LabelAndValue[] labelValues = new LabelAndValue[q.size()];
+    List<OrdAndValue> topResults = pqBuilder.getSorted();
+    LabelAndValue[] labelValues = new LabelAndValue[topResults.size()];
     int[] ordinals = new int[labelValues.length];
     int[] values = new int[labelValues.length];
 
-    for (int i = labelValues.length - 1; i >= 0; i--) {
-      TopOrdAndIntQueue.OrdAndValue ordAndValue = q.pop();
+    for (int i = 0; i < topResults.size(); i++) {
+      TopOrdAndIntQueue.OrdAndValue ordAndValue = topResults.get(i);
       ordinals[i] = ordAndValue.ord;
       values[i] = ordAndValue.value;
     }

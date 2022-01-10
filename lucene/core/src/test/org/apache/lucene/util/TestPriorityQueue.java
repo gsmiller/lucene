@@ -17,12 +17,18 @@
 package org.apache.lucene.util;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Random;
+
+import com.carrotsearch.randomizedtesting.generators.RandomNumbers;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.TestUtil;
+import org.apache.lucene.util.PriorityQueue.Builder;
 import org.hamcrest.MatcherAssert;
 import org.hamcrest.Matchers;
 
@@ -296,5 +302,39 @@ public class TestPriorityQueue extends LuceneTestCase {
             }
           };
         });
+  }
+
+  public void testBuilderRandom() {
+    Comparator<Integer> comparator = Integer::compareTo;
+
+    int iters = TEST_NIGHTLY ? atLeast(10) : 10;
+    for (int iter = 0; iter < iters; iter++) {
+      int count = atLeast(1000);
+      int maxSize = RandomNumbers.randomIntBetween(random(), 1, count);
+      List<Integer> values = new ArrayList<>(count);
+      Builder<Integer> builder = new Builder<>(comparator, maxSize);
+      for (int i = 0; i < count; i++) {
+        int value = random().nextInt();
+        values.add(value);
+        builder.add(value);
+      }
+      values.sort(comparator.reversed()); // sort high-to-low
+      values = values.subList(0, maxSize);
+
+      List<Integer> sorted;
+      if (random().nextBoolean()) {
+        sorted = builder.getSorted();
+      } else {
+        sorted = new ArrayList<>(maxSize);
+        PriorityQueue<Integer> pq  = builder.build();
+        for (int i = 0; i < maxSize; i++) {
+          sorted.add(pq.pop());
+        }
+        Collections.reverse(sorted);
+        assertNull(pq.top());
+      }
+      assertEquals(maxSize, sorted.size());
+      assertEquals(values, sorted);
+    }
   }
 }

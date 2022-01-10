@@ -16,7 +16,12 @@
  */
 package org.apache.lucene.util;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.function.Supplier;
 
@@ -36,6 +41,38 @@ public abstract class PriorityQueue<T> implements Iterable<T> {
   private int size = 0;
   private final int maxSize;
   private final T[] heap;
+
+  private PriorityQueue(int maxSize, List<T> elements) {
+    this(maxSize);
+
+    int len = elements.size();
+    int half = len >>> 1;
+    int i = half - 1;
+    for (; i >= 0; i--) {
+      int k = i;
+      T key = elements.get(k);
+      while (k < half) {
+        int child = (k << 1) + 1;
+        int right = child + 1;
+        T c = elements.get(child);
+        if (right < len && lessThan(elements.get(right), c)) {
+          c = elements.get(right);
+          child = right;
+        }
+        if (lessThan(c, key) == false) {
+          break;
+        }
+        elements.set(k, c);
+        k = child;
+      }
+      elements.set(k, key);
+    }
+
+    size = Math.min(maxSize, len);
+    for (int j = 0; j < size; j++) {
+      heap[j + 1] = elements.get(j); // nocommit: i'm sure we can do better here
+    }
+  }
 
   /** Create an empty priority queue of the configured size. */
   public PriorityQueue(int maxSize) {
@@ -298,5 +335,68 @@ public abstract class PriorityQueue<T> implements Iterable<T> {
         return heap[i++];
       }
     };
+  }
+
+  public static class Builder<T> {
+    private final Comparator<T> comparator;
+    private final int maxSize;
+
+    private List<T> buffer;
+    private PriorityQueue<T> pq;
+
+    public Builder(Comparator<T> comparator, int maxSize) {
+      this.comparator = comparator;
+      this.maxSize = maxSize;
+      buffer = new ArrayList<>();
+    }
+
+    private void createHeap() {
+      assert pq == null;
+      assert buffer != null;
+      pq = new PriorityQueue<>(maxSize, buffer) {
+        @Override
+        protected boolean lessThan(T a, T b) {
+          return comparator.compare(a, b) < 0;
+        }
+      };
+      assert pq.size == build().size();
+      assert pq.maxSize == maxSize;
+      buffer = null;
+    }
+
+    public void add(T element) {
+      if (buffer != null && buffer.size() == maxSize) {
+        createHeap();
+      }
+
+      if (pq != null) {
+        pq.insertWithOverflow(element);
+      } else {
+        assert buffer != null && buffer.size() < maxSize;
+        buffer.add(element);
+      }
+    }
+
+    public List<T> getSorted() {
+      if (buffer != null) {
+        buffer.sort(comparator.reversed());
+        return buffer;
+      } else {
+        assert pq.size == maxSize;
+        List<T> result = new ArrayList<>(maxSize);
+        for (int i = 0; i < maxSize; i++) {
+          result.add(pq.pop()); // nocommit: this is weird since you can't use the builder after this... hmm
+        }
+        Collections.reverse(result); //nocommit: probably a better way...
+        return result;
+      }
+    }
+
+    public PriorityQueue<T> build() {
+      if (pq == null) {
+        createHeap();
+      }
+      return pq;
+    }
   }
 }

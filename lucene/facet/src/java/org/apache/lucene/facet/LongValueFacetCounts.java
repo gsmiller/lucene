@@ -366,19 +366,26 @@ public class LongValueFacetCounts extends Facets {
 
   /** Returns the specified top number of facets, sorted by count. */
   public FacetResult getTopChildrenSortByCount(int topN) {
-
-    int idx = 0;
-    Entry[] all = new Entry[counts.length + hashCounts.size()];
+    PriorityQueue<Entry> pq =
+        new PriorityQueue<>(Math.min(topN, counts.length + hashCounts.size())) {
+          @Override
+          protected boolean lessThan(Entry a, Entry b) {
+            // sort by count descending, breaking ties by value ascending:
+            return a.count < b.count || (a.count == b.count && a.value > b.value);
+          }
+        };
 
     int childCount = 0;
+    Entry e = null;
     for (int i = 0; i < counts.length; i++) {
       if (counts[i] != 0) {
         childCount++;
-        Entry e = new Entry();
+        if (e == null) {
+          e = new Entry();
+        }
         e.value = i;
         e.count = counts[i];
-        all[idx] = e;
-        idx++;
+        e = pq.insertWithOverflow(e);
       }
     }
 
@@ -387,23 +394,15 @@ public class LongValueFacetCounts extends Facets {
       for (LongIntCursor c : hashCounts) {
         int count = c.value;
         if (count != 0) {
-          Entry e = new Entry();
+          if (e == null) {
+            e = new Entry();
+          }
           e.value = c.key;
           e.count = count;
-          all[idx] = e;
-          idx++;
+          e = pq.insertWithOverflow(e);
         }
       }
     }
-
-    PriorityQueue<Entry> pq =
-        new PriorityQueue<>(Math.min(topN, counts.length + hashCounts.size()), all, idx) {
-          @Override
-          protected boolean lessThan(Entry a, Entry b) {
-            // sort by count descending, breaking ties by value ascending:
-            return a.count < b.count || (a.count == b.count && a.value > b.value);
-          }
-        };
 
     LabelAndValue[] results = new LabelAndValue[pq.size()];
     while (pq.size() != 0) {

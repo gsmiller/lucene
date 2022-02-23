@@ -19,10 +19,12 @@ package org.apache.lucene.facet.taxonomy;
 import java.io.IOException;
 import java.util.Map;
 import org.apache.lucene.facet.FacetResult;
+import org.apache.lucene.facet.FacetsCollector;
 import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.FacetsConfig.DimConfig;
 import org.apache.lucene.facet.LabelAndValue;
 import org.apache.lucene.facet.TopOrdAndFloatQueue;
+import org.apache.lucene.index.IndexReader;
 
 /** Base class for all taxonomy-based facets that aggregate to a per-ords float[]. */
 public abstract class FloatTaxonomyFacets extends TaxonomyFacets {
@@ -30,14 +32,39 @@ public abstract class FloatTaxonomyFacets extends TaxonomyFacets {
   // TODO: also use native hash map for sparse collection, like IntTaxonomyFacets
 
   /** Per-ordinal value. */
-  protected final float[] values;
+  protected float[] values;
 
   /** Sole constructor. */
   protected FloatTaxonomyFacets(
-      String indexFieldName, TaxonomyReader taxoReader, FacetsConfig config) throws IOException {
-    super(indexFieldName, taxoReader, config);
-    values = new float[taxoReader.getSize()];
+      String indexFieldName, IndexReader indexReader, TaxonomyReader taxoReader, FacetsConfig config, FacetsCollector facetsCollector) throws IOException {
+    super(indexFieldName, indexReader, taxoReader, config, facetsCollector);
   }
+
+  @Override
+  synchronized void count() throws IOException {
+    if (isCounted) {
+      return;
+    }
+
+    values = new float[taxoReader.getSize()];
+    doCount();
+    isCounted = true;
+  }
+
+  @Override
+  synchronized void countAll() throws IOException {
+    if (isCounted) {
+      return;
+    }
+
+    values = new float[taxoReader.getSize()];
+    doCountAll();
+    isCounted = true;
+  }
+
+  abstract void doCount() throws IOException;
+
+  abstract void doCountAll() throws IOException;
 
   /** Rolls up any single-valued hierarchical dimensions. */
   protected void rollup() throws IOException {
@@ -80,6 +107,9 @@ public abstract class FloatTaxonomyFacets extends TaxonomyFacets {
             "cannot return dimension-level value alone; use getTopChildren instead");
       }
     }
+
+    doFullCount();
+
     int ord = taxoReader.getOrdinal(new FacetLabel(dim, path));
     if (ord < 0) {
       return -1;
@@ -98,6 +128,8 @@ public abstract class FloatTaxonomyFacets extends TaxonomyFacets {
     if (dimOrd == -1) {
       return null;
     }
+
+    doFullCount();
 
     TopOrdAndFloatQueue q = new TopOrdAndFloatQueue(Math.min(taxoReader.getSize(), topN));
     float bottomValue = 0;

@@ -35,6 +35,8 @@ import org.apache.lucene.search.DoubleValuesSource;
  */
 public class TaxonomyFacetSumValueSource extends FloatTaxonomyFacets {
 
+  private final DoubleValuesSource valueSource;
+
   /**
    * Aggreggates double facet values from the provided {@link DoubleValuesSource}, pulling ordinals
    * from the default indexed facet field {@link FacetsConfig#DEFAULT_INDEX_FIELD_NAME}.
@@ -59,8 +61,8 @@ public class TaxonomyFacetSumValueSource extends FloatTaxonomyFacets {
       FacetsCollector fc,
       DoubleValuesSource valueSource)
       throws IOException {
-    super(indexField, taxoReader, config);
-    sumValues(fc.getMatchingDocs(), fc.getKeepScores(), valueSource);
+    super(indexField, null, taxoReader, config, fc);
+    this.valueSource = valueSource;
   }
 
   private static DoubleValues scores(MatchingDocs hits) {
@@ -81,14 +83,12 @@ public class TaxonomyFacetSumValueSource extends FloatTaxonomyFacets {
     };
   }
 
-  private void sumValues(
-      List<MatchingDocs> matchingDocs, boolean keepScores, DoubleValuesSource valueSource)
-      throws IOException {
-
-    for (MatchingDocs hits : matchingDocs) {
+  @Override
+  void doCount() throws IOException {
+    for (MatchingDocs hits : facetsCollector.getMatchingDocs()) {
       SortedNumericDocValues ordinalValues =
           DocValues.getSortedNumeric(hits.context.reader(), indexFieldName);
-      DoubleValues scores = keepScores ? scores(hits) : null;
+      DoubleValues scores = facetsCollector.getKeepScores() ? scores(hits) : null;
       DoubleValues functionValues = valueSource.getValues(hits.context, scores);
       DocIdSetIterator it =
           ConjunctionUtils.intersectIterators(List.of(hits.bits.iterator(), ordinalValues));
@@ -105,5 +105,10 @@ public class TaxonomyFacetSumValueSource extends FloatTaxonomyFacets {
     }
 
     rollup();
+  }
+
+  @Override
+  void doCountAll() throws IOException {
+    throw new UnsupportedOperationException("not implemented");
   }
 }

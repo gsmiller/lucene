@@ -25,8 +25,10 @@ import java.util.List;
 import java.util.Locale;
 import org.apache.lucene.facet.FacetResult;
 import org.apache.lucene.facet.Facets;
+import org.apache.lucene.facet.FacetsCollector;
 import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.FacetsConfig.DimConfig;
+import org.apache.lucene.index.IndexReader;
 
 /** Base class for all taxonomy-based facets impls. */
 public abstract class TaxonomyFacets extends Facets {
@@ -48,6 +50,10 @@ public abstract class TaxonomyFacets extends Facets {
   /** Index field name provided to the constructor. */
   protected final String indexFieldName;
 
+  protected final IndexReader indexReader;
+
+  protected final FacetsCollector facetsCollector;
+
   /** {@code TaxonomyReader} provided to the constructor. */
   protected final TaxonomyReader taxoReader;
 
@@ -63,12 +69,16 @@ public abstract class TaxonomyFacets extends Facets {
   /** Maps an ordinal to its parent, or -1 if there is no parent (root node). */
   protected final int[] parents;
 
+  protected volatile boolean isCounted;
+
   /** Sole constructor. */
-  protected TaxonomyFacets(String indexFieldName, TaxonomyReader taxoReader, FacetsConfig config)
+  protected TaxonomyFacets(String indexFieldName, IndexReader indexReader, TaxonomyReader taxoReader, FacetsConfig config, FacetsCollector facetsCollector)
       throws IOException {
+    this.indexReader = indexReader;
     this.indexFieldName = indexFieldName;
     this.taxoReader = taxoReader;
     this.config = config;
+    this.facetsCollector = facetsCollector;
     parents = taxoReader.getParallelTaxonomyArrays().parents();
   }
 
@@ -112,6 +122,26 @@ public abstract class TaxonomyFacets extends Facets {
     return children != null;
   }
 
+  void doFullCount() throws IOException {
+    // Best effort check first. If this is true, we know the counting has been done. If false,
+    // it's also possible that some other thread is already doing the counting, so it needs
+    // to be checked again inside a lock before doing the counting work:
+    if (isCounted) {
+      return;
+    }
+
+    if (facetsCollector == null) {
+      assert indexReader != null;
+      countAll();
+    } else {
+      count();
+    }
+  }
+
+  abstract void count() throws IOException;
+
+  abstract void countAll() throws IOException;
+
   /**
    * Verifies and returns {@link DimConfig} for the given dimension name.
    *
@@ -138,6 +168,7 @@ public abstract class TaxonomyFacets extends Facets {
 
   @Override
   public List<FacetResult> getAllDims(int topN) throws IOException {
+    doFullCount();
     int[] children = getChildren();
     int[] siblings = getSiblings();
     int ord = children[TaxonomyReader.ROOT_ORDINAL];

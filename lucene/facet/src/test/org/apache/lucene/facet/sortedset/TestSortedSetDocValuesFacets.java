@@ -667,7 +667,7 @@ public class TestSortedSetDocValuesFacets extends FacetTestCase {
           expectThrows(
               IllegalStateException.class,
               () -> {
-                new SortedSetDocValuesFacetCounts(state, c);
+                new SortedSetDocValuesFacetCounts(state, c).getAllDims(10);
               });
         }
       }

@@ -107,10 +107,6 @@ public class TestTaxonomyFacetCounts extends FacetTestCase {
     Facets facets =
         getAllFacets(FacetsConfig.DEFAULT_INDEX_FIELD_NAME, searcher, taxoReader, config);
 
-    // Publish Date is hierarchical, so we should have loaded all 3 int[]:
-    assertTrue(((TaxonomyFacets) facets).siblingsLoaded());
-    assertTrue(((TaxonomyFacets) facets).childrenLoaded());
-
     // Retrieve & verify results:
     assertEquals(
         "dim=Publish Date path=[] value=5 childCount=3\n  2010 (2)\n  2012 (2)\n  1999 (1)\n",
@@ -118,6 +114,10 @@ public class TestTaxonomyFacetCounts extends FacetTestCase {
     assertEquals(
         "dim=Author path=[] value=5 childCount=4\n  Lisa (2)\n  Bob (1)\n  Susan (1)\n  Frank (1)\n",
         facets.getTopChildren(10, "Author").toString());
+
+    // Publish Date is hierarchical, so we should have loaded all 3 int[]:
+    assertTrue(((TaxonomyFacets) facets).siblingsLoaded());
+    assertTrue(((TaxonomyFacets) facets).childrenLoaded());
 
     // Now user drills down on Publish Date/2010:
     DrillDownQuery q2 = new DrillDownQuery(config);

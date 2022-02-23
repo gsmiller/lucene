@@ -74,7 +74,9 @@ public class SortedSetDocValuesFacetCounts extends Facets {
   final FacetsConfig stateConfig;
   final SortedSetDocValues dv;
   final String field;
-  final int[] counts;
+  final FacetsCollector hits;
+
+  volatile int[] counts;
 
   private static final String[] emptyPath = new String[0];
 
@@ -90,7 +92,16 @@ public class SortedSetDocValuesFacetCounts extends Facets {
     this.field = state.getField();
     this.stateConfig = state.getFacetsConfig();
     this.dv = state.getDocValues();
-    this.counts = new int[state.getSize()];
+    this.hits = hits;
+  }
+
+  private synchronized void doFullCount() throws IOException {
+    if (counts != null) {
+      return;
+    }
+
+    counts = new int[state.getSize()];
+
     if (hits == null) {
       // browse only
       countAll();
@@ -104,6 +115,8 @@ public class SortedSetDocValuesFacetCounts extends Facets {
     if (topN <= 0) {
       throw new IllegalArgumentException("topN must be > 0 (got: " + topN + ")");
     }
+
+    doFullCount();
 
     FacetsConfig.DimConfig dimConfig = stateConfig.getDimConfig(dim);
 
@@ -302,7 +315,7 @@ public class SortedSetDocValuesFacetCounts extends Facets {
   }
 
   /** Does all the "real work" of tallying up the counts. */
-  private void count(List<MatchingDocs> matchingDocs) throws IOException {
+  private synchronized void count(List<MatchingDocs> matchingDocs) throws IOException {
 
     OrdinalMap ordinalMap;
 
@@ -358,6 +371,9 @@ public class SortedSetDocValuesFacetCounts extends Facets {
     if (path.length != 1) {
       throw new IllegalArgumentException("path must be length=1");
     }
+
+    doFullCount();
+
     int ord = (int) dv.lookupTerm(new BytesRef(FacetsConfig.pathToString(dim, path)));
     if (ord < 0) {
       return -1;
@@ -368,6 +384,8 @@ public class SortedSetDocValuesFacetCounts extends Facets {
 
   @Override
   public List<FacetResult> getAllDims(int topN) throws IOException {
+
+    doFullCount();
 
     List<FacetResult> results = new ArrayList<>();
     for (String dim : state.getDims()) {

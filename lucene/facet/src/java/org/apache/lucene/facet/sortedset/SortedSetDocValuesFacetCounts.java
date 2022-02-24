@@ -83,6 +83,8 @@ public class SortedSetDocValuesFacetCounts extends Facets {
   volatile IndexSearcher searcher;
   volatile int[] counts;
 
+  private final Object mutex = new Object();
+
   private static final String[] emptyPath = new String[0];
 
   /** Returns all facet counts, same result as searching on {@link MatchAllDocsQuery} but faster. */
@@ -100,18 +102,19 @@ public class SortedSetDocValuesFacetCounts extends Facets {
     this.hits = hits;
   }
 
-  private synchronized void doFullCount() throws IOException {
-    if (counts != null) {
-      return;
-    }
+  private void doFullCount() throws IOException {
+    synchronized (mutex) {
+      if (counts != null) {
+        return;
+      }
 
-    counts = new int[state.getSize()];
-
-    if (hits == null) {
-      // browse only
-      countAll();
-    } else {
-      count(hits.getMatchingDocs());
+      counts = new int[state.getSize()];
+      if (hits == null) {
+        // browse only
+        countAll();
+      } else {
+        count(hits.getMatchingDocs());
+      }
     }
   }
 
@@ -385,11 +388,24 @@ public class SortedSetDocValuesFacetCounts extends Facets {
       if (ord < 0) {
         return -1;
       }
-
       return counts[ord];
     } else {
-      initSearcher();
-      return searcher.count(new TermQuery(new Term(field, term)));
+      final boolean useCounts;
+      synchronized (mutex) {
+        useCounts = counts != null;
+      }
+
+      if (useCounts) {
+        assert counts != null;
+        int ord = (int) dv.lookupTerm(term);
+        if (ord < 0) {
+          return -1;
+        }
+        return counts[ord];
+      } else {
+        initSearcher();
+        return searcher.count(new TermQuery(new Term(field, term)));
+      }
     }
   }
 

@@ -48,7 +48,6 @@ import org.apache.lucene.search.ConjunctionUtils;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
-import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
@@ -100,22 +99,6 @@ public class SortedSetDocValuesFacetCounts extends Facets {
     this.stateConfig = state.getFacetsConfig();
     this.dv = state.getDocValues();
     this.hits = hits;
-  }
-
-  private void doFullCount() throws IOException {
-    synchronized (mutex) {
-      if (counts != null) {
-        return;
-      }
-
-      counts = new int[state.getSize()];
-      if (hits == null) {
-        // browse only
-        countAll();
-      } else {
-        count(hits.getMatchingDocs());
-      }
-    }
   }
 
   @Override
@@ -323,7 +306,7 @@ public class SortedSetDocValuesFacetCounts extends Facets {
   }
 
   /** Does all the "real work" of tallying up the counts. */
-  private synchronized void count(List<MatchingDocs> matchingDocs) throws IOException {
+  private void count(List<MatchingDocs> matchingDocs) throws IOException {
 
     OrdinalMap ordinalMap;
 
@@ -371,6 +354,22 @@ public class SortedSetDocValuesFacetCounts extends Facets {
 
       countOneSegment(
           ordinalMap, context.reader(), context.ord, null, context.reader().getLiveDocs());
+    }
+  }
+
+  private void doFullCount() throws IOException {
+    synchronized (mutex) {
+      if (counts != null) {
+        return;
+      }
+
+      counts = new int[state.getSize()];
+      if (hits == null) {
+        // browse only
+        countAll();
+      } else {
+        count(hits.getMatchingDocs());
+      }
     }
   }
 

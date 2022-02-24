@@ -26,6 +26,10 @@ import org.apache.lucene.facet.FacetsConfig.DimConfig;
 import org.apache.lucene.facet.LabelAndValue;
 import org.apache.lucene.facet.TopOrdAndIntQueue;
 import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.Term;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.util.BytesRef;
 
 import java.io.IOException;
 import java.util.Map;
@@ -38,6 +42,8 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
 
   /** Sparse ordinal values. */
   IntIntHashMap sparseValues;
+
+  private IndexSearcher indexSearcher;
 
   /** Sole constructor. */
   IntTaxonomyFacets(
@@ -171,13 +177,30 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
       }
     }
 
-    doFullCount();
-
-    int ord = taxoReader.getOrdinal(new FacetLabel(dim, path));
-    if (ord < 0) {
-      return -1;
+    if (facetsCollector != null) {
+      doFullCount();
+      int ord = taxoReader.getOrdinal(new FacetLabel(dim, path));
+      if (ord < 0) {
+        return -1;
+      }
+      return getValue(ord);
+    } else {
+      if (isCounted) {
+        int ord = taxoReader.getOrdinal(new FacetLabel(dim, path));
+        if (ord < 0) {
+          return -1;
+        }
+        return getValue(ord);
+      } else {
+        // Race conditions could potentially create multiple searchers, but that won't actually
+        // hurt anything besides creating a little garbage. Seems like a reasonable trade-off
+        // to avoid synchronization:
+        if (indexSearcher == null) {
+          indexSearcher = new IndexSearcher(indexReader);
+        }
+        return indexSearcher.count(new TermQuery(new Term(indexFieldName, new BytesRef(FacetsConfig.pathToString(dim, path)))));
+      }
     }
-    return getValue(ord);
   }
 
   @Override

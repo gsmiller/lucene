@@ -43,9 +43,12 @@ import org.apache.lucene.index.OrdinalMap;
 import org.apache.lucene.index.ReaderUtil;
 import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.search.ConjunctionUtils;
 import org.apache.lucene.search.DocIdSetIterator;
+import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
+import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.LongValues;
@@ -77,6 +80,9 @@ public class SortedSetDocValuesFacetCounts extends Facets {
   final FacetsCollector hits;
 
   int[] counts;
+  private volatile boolean isCounted;
+
+  private IndexSearcher searcher;
 
   private static final String[] emptyPath = new String[0];
 
@@ -352,10 +358,11 @@ public class SortedSetDocValuesFacetCounts extends Facets {
   }
 
   private synchronized void doFullCount() throws IOException {
-    if (counts != null) {
+    if (isCounted) {
       return;
     }
 
+    assert counts == null;
     counts = new int[state.getSize()];
     if (hits == null) {
       // browse only
@@ -363,6 +370,7 @@ public class SortedSetDocValuesFacetCounts extends Facets {
     } else {
       count(hits.getMatchingDocs());
     }
+    isCounted = true;
   }
 
   @Override
@@ -371,14 +379,33 @@ public class SortedSetDocValuesFacetCounts extends Facets {
       throw new IllegalArgumentException("path must be length=1");
     }
 
-    doFullCount();
+    final BytesRef term = new BytesRef(FacetsConfig.pathToString(dim, path));
 
-    int ord = (int) dv.lookupTerm(new BytesRef(FacetsConfig.pathToString(dim, path)));
-    if (ord < 0) {
-      return -1;
+    if (hits != null) {
+      doFullCount();
+      int ord = (int) dv.lookupTerm(term);
+      if (ord < 0) {
+        return -1;
+      }
+      return counts[ord];
+    } else {
+      if (isCounted) {
+        assert counts != null;
+        int ord = (int) dv.lookupTerm(term);
+        if (ord < 0) {
+          return -1;
+        }
+        return counts[ord];
+      } else {
+        // Race conditions could potentially create multiple searchers, but that won't actually
+        // hurt anything besides creating a little garbage. Seems like a reasonable trade-off
+        // to avoid synchronization:
+        if (searcher == null) {
+          searcher = new IndexSearcher(state.getReader());
+        }
+        return searcher.count(new TermQuery(new Term(field, term)));
+      }
     }
-
-    return counts[ord];
   }
 
   @Override

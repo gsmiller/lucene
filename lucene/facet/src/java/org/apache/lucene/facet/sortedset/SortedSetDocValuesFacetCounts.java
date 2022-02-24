@@ -43,9 +43,13 @@ import org.apache.lucene.index.OrdinalMap;
 import org.apache.lucene.index.ReaderUtil;
 import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.search.ConjunctionUtils;
 import org.apache.lucene.search.DocIdSetIterator;
+import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
+import org.apache.lucene.search.Query;
+import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.LongValues;
@@ -76,6 +80,7 @@ public class SortedSetDocValuesFacetCounts extends Facets {
   final String field;
   final FacetsCollector hits;
 
+  volatile IndexSearcher searcher;
   volatile int[] counts;
 
   private static final String[] emptyPath = new String[0];
@@ -372,14 +377,26 @@ public class SortedSetDocValuesFacetCounts extends Facets {
       throw new IllegalArgumentException("path must be length=1");
     }
 
-    doFullCount();
+    final BytesRef term = new BytesRef(FacetsConfig.pathToString(dim, path));
 
-    int ord = (int) dv.lookupTerm(new BytesRef(FacetsConfig.pathToString(dim, path)));
-    if (ord < 0) {
-      return -1;
+    if (hits != null) {
+      doFullCount();
+      int ord = (int) dv.lookupTerm(term);
+      if (ord < 0) {
+        return -1;
+      }
+
+      return counts[ord];
+    } else {
+      initSearcher();
+      return searcher.count(new TermQuery(new Term(field, term)));
     }
+  }
 
-    return counts[ord];
+  private synchronized void initSearcher() {
+    if (searcher == null) {
+      searcher = new IndexSearcher(state.getReader());
+    }
   }
 
   @Override

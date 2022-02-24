@@ -53,8 +53,7 @@ public class FastTaxonomyFacetCounts extends IntTaxonomyFacets {
   public FastTaxonomyFacetCounts(
       String indexFieldName, TaxonomyReader taxoReader, FacetsConfig config, FacetsCollector fc)
       throws IOException {
-    super(indexFieldName, taxoReader, config, fc);
-    count(fc.getMatchingDocs());
+    super(indexFieldName, null, taxoReader, config, fc);
   }
 
   /**
@@ -65,12 +64,12 @@ public class FastTaxonomyFacetCounts extends IntTaxonomyFacets {
   public FastTaxonomyFacetCounts(
       String indexFieldName, IndexReader reader, TaxonomyReader taxoReader, FacetsConfig config)
       throws IOException {
-    super(indexFieldName, taxoReader, config, null);
-    countAll(reader);
+    super(indexFieldName, reader, taxoReader, config, null);
   }
 
-  private void count(List<MatchingDocs> matchingDocs) throws IOException {
-    for (MatchingDocs hits : matchingDocs) {
+  @Override
+  void doCount() throws IOException {
+    for (MatchingDocs hits : facetsCollector.getMatchingDocs()) {
       SortedNumericDocValues multiValued =
           hits.context.reader().getSortedNumericDocValues(indexFieldName);
       if (multiValued == null) {
@@ -113,9 +112,10 @@ public class FastTaxonomyFacetCounts extends IntTaxonomyFacets {
     rollup();
   }
 
-  private void countAll(IndexReader reader) throws IOException {
+  @Override
+  void doCountAll() throws IOException {
     assert values != null;
-    for (LeafReaderContext context : reader.leaves()) {
+    for (LeafReaderContext context : indexReader.leaves()) {
       SortedNumericDocValues multiValued =
           context.reader().getSortedNumericDocValues(indexFieldName);
       if (multiValued == null) {

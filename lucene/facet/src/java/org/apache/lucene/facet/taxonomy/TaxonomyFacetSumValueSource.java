@@ -22,6 +22,7 @@ import org.apache.lucene.facet.FacetsCollector;
 import org.apache.lucene.facet.FacetsCollector.MatchingDocs;
 import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.index.DocValues;
+import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.SortedNumericDocValues;
 import org.apache.lucene.search.ConjunctionUtils;
 import org.apache.lucene.search.DocIdSetIterator;
@@ -34,6 +35,8 @@ import org.apache.lucene.search.DoubleValuesSource;
  * @lucene.experimental
  */
 public class TaxonomyFacetSumValueSource extends FloatTaxonomyFacets {
+
+  private final DoubleValuesSource valueSource;
 
   /**
    * Aggreggates double facet values from the provided {@link DoubleValuesSource}, pulling ordinals
@@ -59,8 +62,8 @@ public class TaxonomyFacetSumValueSource extends FloatTaxonomyFacets {
       FacetsCollector fc,
       DoubleValuesSource valueSource)
       throws IOException {
-    super(indexField, taxoReader, config);
-    sumValues(fc.getMatchingDocs(), fc.getKeepScores(), valueSource);
+    super(indexField, null, taxoReader, config, fc);
+    this.valueSource = valueSource;
   }
 
   private static DoubleValues scores(MatchingDocs hits) {
@@ -81,14 +84,12 @@ public class TaxonomyFacetSumValueSource extends FloatTaxonomyFacets {
     };
   }
 
-  private void sumValues(
-      List<MatchingDocs> matchingDocs, boolean keepScores, DoubleValuesSource valueSource)
-      throws IOException {
-
-    for (MatchingDocs hits : matchingDocs) {
+  @Override
+  void doCount() throws IOException {
+    for (MatchingDocs hits : facetsCollector.getMatchingDocs()) {
       SortedNumericDocValues ordinalValues =
           DocValues.getSortedNumeric(hits.context.reader(), indexFieldName);
-      DoubleValues scores = keepScores ? scores(hits) : null;
+      DoubleValues scores = facetsCollector.getKeepScores() ? scores(hits) : null;
       DoubleValues functionValues = valueSource.getValues(hits.context, scores);
       DocIdSetIterator it =
           ConjunctionUtils.intersectIterators(List.of(hits.bits.iterator(), ordinalValues));
@@ -105,5 +106,10 @@ public class TaxonomyFacetSumValueSource extends FloatTaxonomyFacets {
     }
 
     rollup();
+  }
+
+  @Override
+  void doCountAll() throws IOException {
+    throw new UnsupportedOperationException("not implemented");
   }
 }

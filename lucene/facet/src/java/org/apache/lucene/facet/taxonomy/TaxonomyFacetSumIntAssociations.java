@@ -17,7 +17,6 @@
 package org.apache.lucene.facet.taxonomy;
 
 import java.io.IOException;
-import java.util.List;
 import org.apache.lucene.facet.FacetsCollector;
 import org.apache.lucene.facet.FacetsCollector.MatchingDocs;
 import org.apache.lucene.facet.FacetsConfig;
@@ -44,13 +43,12 @@ public class TaxonomyFacetSumIntAssociations extends IntTaxonomyFacets {
   public TaxonomyFacetSumIntAssociations(
       String indexFieldName, TaxonomyReader taxoReader, FacetsConfig config, FacetsCollector fc)
       throws IOException {
-    super(indexFieldName, taxoReader, config, fc);
-    sumValues(fc.getMatchingDocs());
+    super(indexFieldName, null, taxoReader, config, fc);
   }
 
-  private final void sumValues(List<MatchingDocs> matchingDocs) throws IOException {
-    // System.out.println("count matchingDocs=" + matchingDocs + " facetsField=" + facetsFieldName);
-    for (MatchingDocs hits : matchingDocs) {
+  @Override
+  void doCount() throws IOException {
+    for (MatchingDocs hits : facetsCollector.getMatchingDocs()) {
       BinaryDocValues dv = hits.context.reader().getBinaryDocValues(indexFieldName);
       if (dv == null) { // this reader does not have DocValues for the requested category list
         continue;
@@ -80,4 +78,10 @@ public class TaxonomyFacetSumIntAssociations extends IntTaxonomyFacets {
       }
     }
   }
+
+  @Override
+  void doCountAll() throws IOException {
+    throw new UnsupportedOperationException("not implemented");
+  }
+
 }

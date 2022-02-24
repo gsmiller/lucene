@@ -19,6 +19,7 @@ package org.apache.lucene.facet.taxonomy;
 import com.carrotsearch.hppc.IntIntHashMap;
 import com.carrotsearch.hppc.cursors.IntIntCursor;
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import org.apache.lucene.facet.FacetResult;
 import org.apache.lucene.facet.FacetsCollector;
@@ -27,29 +28,30 @@ import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.FacetsConfig.DimConfig;
 import org.apache.lucene.facet.LabelAndValue;
 import org.apache.lucene.facet.TopOrdAndIntQueue;
+import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.Term;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.util.BytesRef;
 
 /** Base class for all taxonomy-based facets that aggregate to a per-ords int[]. */
 abstract class IntTaxonomyFacets extends TaxonomyFacets {
 
   /** Dense ordinal values. */
-  final int[] values;
+  volatile int[] values;
 
   /** Sparse ordinal values. */
-  final IntIntHashMap sparseValues;
+  volatile IntIntHashMap sparseValues;
+
+  volatile IndexSearcher indexSearcher;
+
+  private final Object mutex = new Object();
 
   /** Sole constructor. */
   IntTaxonomyFacets(
-      String indexFieldName, TaxonomyReader taxoReader, FacetsConfig config, FacetsCollector fc)
+      String indexFieldName, IndexReader indexReader, TaxonomyReader taxoReader, FacetsConfig config, FacetsCollector fc)
       throws IOException {
-    super(indexFieldName, taxoReader, config);
-
-    if (useHashTable(fc, taxoReader)) {
-      sparseValues = new IntIntHashMap();
-      values = null;
-    } else {
-      sparseValues = null;
-      values = new int[taxoReader.getSize()];
-    }
+    super(indexFieldName, indexReader, taxoReader, config, fc);
   }
 
   /** Increment the count for this ordinal by {@code amount}.. */
@@ -69,6 +71,48 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
       return values[ordinal];
     }
   }
+
+  boolean isCounted() {
+    synchronized (mutex) {
+      return values != null || sparseValues != null;
+    }
+  }
+
+  void count() throws IOException {
+    synchronized (mutex) {
+      if (isCounted()) {
+        return;
+      }
+
+      if (useHashTable(facetsCollector, taxoReader)) {
+        sparseValues = new IntIntHashMap();
+      } else {
+        values = new int[taxoReader.getSize()];
+      }
+
+      doCount();
+    }
+  }
+
+  abstract void doCount() throws IOException;
+
+  void countAll() throws IOException {
+    synchronized (mutex) {
+      if (isCounted()) {
+        return;
+      }
+
+      if (useHashTable(facetsCollector, taxoReader)) {
+        sparseValues = new IntIntHashMap();
+      } else {
+        values = new int[taxoReader.getSize()];
+      }
+
+      doCountAll();
+    }
+  }
+
+  abstract void doCountAll() throws IOException;
 
   /** Rolls up any single-valued hierarchical dimensions. */
   void rollup() throws IOException {
@@ -140,11 +184,32 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
             "cannot return dimension-level value alone; use getTopChildren instead");
       }
     }
-    int ord = taxoReader.getOrdinal(new FacetLabel(dim, path));
-    if (ord < 0) {
-      return -1;
+
+    if (facetsCollector != null) {
+      doFullCount();
+      int ord = taxoReader.getOrdinal(new FacetLabel(dim, path));
+      if (ord < 0) {
+        return -1;
+      }
+      return getValue(ord);
+    } else {
+      if (isCounted()) {
+        int ord = taxoReader.getOrdinal(new FacetLabel(dim, path));
+        if (ord < 0) {
+          return -1;
+        }
+        return getValue(ord);
+      } else {
+        initSearcher();
+        return indexSearcher.count(new TermQuery(new Term(indexFieldName, new BytesRef(FacetsConfig.pathToString(dim, path)))));
+      }
     }
-    return getValue(ord);
+  }
+
+  private synchronized void initSearcher() {
+    if (indexSearcher == null) {
+      indexSearcher = new IndexSearcher(indexReader);
+    }
   }
 
   @Override
@@ -158,6 +223,8 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
     if (dimOrd == -1) {
       return null;
     }
+
+    doFullCount();
 
     TopOrdAndIntQueue q = new TopOrdAndIntQueue(Math.min(taxoReader.getSize(), topN));
 

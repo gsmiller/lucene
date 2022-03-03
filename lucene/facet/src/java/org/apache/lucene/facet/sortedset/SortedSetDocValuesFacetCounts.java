@@ -78,13 +78,14 @@ public class SortedSetDocValuesFacetCounts extends Facets {
   final String field;
   final int[] counts;
 
-  static final Comparator<OrdAndValue> ordAndValueComparator = (a, b) -> {
-    int cmp = Integer.compare(a.value, b.value);
-    if (cmp == 0) {
-      cmp = -Integer.compare(a.ord, b.ord);
-    }
-    return cmp;
-  };
+  static final Comparator<OrdAndValue> ordAndValueComparator =
+      (a, b) -> {
+        int cmp = Integer.compare(a.value, b.value);
+        if (cmp == 0) {
+          cmp = -Integer.compare(a.ord, b.ord);
+        }
+        return cmp;
+      };
 
   private static final String[] emptyPath = new String[0];
 

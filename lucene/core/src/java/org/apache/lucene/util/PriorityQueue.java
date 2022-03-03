@@ -18,7 +18,6 @@ package org.apache.lucene.util;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -42,36 +41,41 @@ public abstract class PriorityQueue<T> implements Iterable<T> {
   private final int maxSize;
   private final T[] heap;
 
-  private PriorityQueue(int maxSize, List<T> elements) {
+  /**
+   * Initializes the PriorityQueue in bulk using a heapify algorithm inspired by Java's
+   * {@link java.util.PriorityQueue} implementation.
+   */
+  private PriorityQueue(int maxSize, List<T> buffer) {
     this(maxSize);
 
-    int len = elements.size();
+    int len = buffer.size();
+    @SuppressWarnings("unchecked")
+    T[] elements = (T[]) buffer.toArray();
+
     int half = len >>> 1;
     int i = half - 1;
     for (; i >= 0; i--) {
       int k = i;
-      T key = elements.get(k);
+      T key = elements[k];
       while (k < half) {
         int child = (k << 1) + 1;
         int right = child + 1;
-        T c = elements.get(child);
-        if (right < len && lessThan(elements.get(right), c)) {
-          c = elements.get(right);
+        T c = elements[child];
+        if (right < len && lessThan(elements[right], c)) {
+          c = elements[right];
           child = right;
         }
         if (lessThan(c, key) == false) {
           break;
         }
-        elements.set(k, c);
+        elements[k] = c;
         k = child;
       }
-      elements.set(k, key);
+      elements[k] = key;
     }
 
     size = Math.min(maxSize, len);
-    for (int j = 0; j < size; j++) {
-      heap[j + 1] = elements.get(j); // nocommit: i'm sure we can do better here
-    }
+    System.arraycopy(elements, 0, heap, 1, size);
   }
 
   /** Create an empty priority queue of the configured size. */
@@ -353,12 +357,13 @@ public abstract class PriorityQueue<T> implements Iterable<T> {
     private void createHeap() {
       assert pq == null;
       assert buffer != null;
-      pq = new PriorityQueue<>(maxSize, buffer) {
-        @Override
-        protected boolean lessThan(T a, T b) {
-          return comparator.compare(a, b) < 0;
-        }
-      };
+      pq =
+          new PriorityQueue<>(maxSize, buffer) {
+            @Override
+            protected boolean lessThan(T a, T b) {
+              return comparator.compare(a, b) < 0;
+            }
+          };
       assert pq.size == build().size();
       assert pq.maxSize == maxSize;
       buffer = null;
@@ -383,12 +388,12 @@ public abstract class PriorityQueue<T> implements Iterable<T> {
         return buffer;
       } else {
         assert pq.size == maxSize;
-        List<T> result = new ArrayList<>(maxSize);
-        for (int i = 0; i < maxSize; i++) {
-          result.add(pq.pop()); // nocommit: this is weird since you can't use the builder after this... hmm
+        @SuppressWarnings("unchecked")
+        T[] result = (T[]) new Object[maxSize];
+        for (int i = maxSize - 1; i >= 0; i--) {
+          result[i] = pq.pop(); // nocommit: this is weird since it clears out the queue
         }
-        Collections.reverse(result); //nocommit: probably a better way...
-        return result;
+        return Arrays.asList(result);
       }
     }
 

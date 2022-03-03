@@ -41,13 +41,14 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
   /** Sparse ordinal values. */
   final IntIntHashMap sparseValues;
 
-  static final Comparator<OrdAndValue> ordAndValueComparator = (a, b) -> {
-    int cmp = Integer.compare(a.value, b.value);
-    if (cmp == 0) {
-      cmp = -Integer.compare(a.ord, b.ord);
-    }
-    return cmp;
-  };
+  static final Comparator<OrdAndValue> ordAndValueComparator =
+      (a, b) -> {
+        int cmp = Integer.compare(a.value, b.value);
+        if (cmp == 0) {
+          cmp = -Integer.compare(a.ord, b.ord);
+        }
+        return cmp;
+      };
 
   /** Sole constructor. */
   IntTaxonomyFacets(

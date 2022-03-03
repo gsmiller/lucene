@@ -16,16 +16,14 @@
  */
 package org.apache.lucene.util;
 
+import com.carrotsearch.randomizedtesting.generators.RandomNumbers;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Random;
-
-import com.carrotsearch.randomizedtesting.generators.RandomNumbers;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.PriorityQueue.Builder;
@@ -326,7 +324,7 @@ public class TestPriorityQueue extends LuceneTestCase {
         sorted = builder.getSorted();
       } else {
         sorted = new ArrayList<>(maxSize);
-        PriorityQueue<Integer> pq  = builder.build();
+        PriorityQueue<Integer> pq = builder.build();
         for (int i = 0; i < maxSize; i++) {
           sorted.add(pq.pop());
         }

@@ -45,37 +45,37 @@ public abstract class PriorityQueue<T> implements Iterable<T> {
    * Initializes the PriorityQueue in bulk using a heapify algorithm inspired by Java's
    * {@link java.util.PriorityQueue} implementation.
    */
-  private PriorityQueue(int maxSize, List<T> buffer) {
-    this(maxSize);
+  private PriorityQueue(int maxSize, T[] elements, int len) {
+    this.maxSize = maxSize;
 
-    int len = buffer.size();
-    @SuppressWarnings("unchecked")
-    T[] elements = (T[]) buffer.toArray();
+    // We use 1-based indexing in our heap array, so copy the 0th element to the end:
+    elements = ArrayUtil.grow(elements, len + 1);
+    elements[len] = elements[0];
+    heap = elements;
 
     int half = len >>> 1;
-    int i = half - 1;
-    for (; i >= 0; i--) {
+    int i = half;
+    for (; i > 0; i--) {
       int k = i;
-      T key = elements[k];
-      while (k < half) {
-        int child = (k << 1) + 1;
+      T key = heap[k];
+      while (k <= half) {
+        int child = k << 1;
         int right = child + 1;
-        T c = elements[child];
-        if (right < len && lessThan(elements[right], c)) {
-          c = elements[right];
+        T c = heap[child];
+        if (right <= len && lessThan(heap[right], c)) {
+          c = heap[right];
           child = right;
         }
         if (lessThan(c, key) == false) {
           break;
         }
-        elements[k] = c;
+        heap[k] = c;
         k = child;
       }
-      elements[k] = key;
+      heap[k] = key;
     }
 
     size = Math.min(maxSize, len);
-    System.arraycopy(elements, 0, heap, 1, size);
   }
 
   /** Create an empty priority queue of the configured size. */
@@ -345,47 +345,56 @@ public abstract class PriorityQueue<T> implements Iterable<T> {
     private final Comparator<T> comparator;
     private final int maxSize;
 
-    private List<T> buffer;
+    private int size;
+    private T[] buffer;
     private PriorityQueue<T> pq;
+
 
     public Builder(Comparator<T> comparator, int maxSize) {
       this.comparator = comparator;
       this.maxSize = maxSize;
-      buffer = new ArrayList<>();
+
+      @SuppressWarnings("unchecked")
+      final T[] b = (T[]) new Object[32];
+      buffer = b;
     }
 
     private void createHeap() {
       assert pq == null;
       assert buffer != null;
+      assert size != -1;
       pq =
-          new PriorityQueue<>(maxSize, buffer) {
+          new PriorityQueue<>(maxSize, buffer, size) {
             @Override
             protected boolean lessThan(T a, T b) {
               return comparator.compare(a, b) < 0;
             }
           };
-      assert pq.size == build().size();
+      assert pq.size == size;
       assert pq.maxSize == maxSize;
       buffer = null;
+      size = -1;
     }
 
     public void add(T element) {
-      if (buffer != null && buffer.size() == maxSize) {
+      if (size == maxSize) {
         createHeap();
       }
 
       if (pq != null) {
         pq.insertWithOverflow(element);
       } else {
-        assert buffer != null && buffer.size() < maxSize;
-        buffer.add(element);
+        assert buffer != null && size < maxSize && size != -1;
+        buffer = ArrayUtil.grow(buffer,size + 1);
+        buffer[size] = element;
+        size++;
       }
     }
 
     public List<T> getSorted() {
       if (buffer != null) {
-        buffer.sort(comparator.reversed());
-        return buffer;
+        Arrays.sort(buffer, 0, size, comparator.reversed());
+        return Arrays.asList(buffer).subList(0, size);
       } else {
         assert pq.size == maxSize;
         @SuppressWarnings("unchecked")

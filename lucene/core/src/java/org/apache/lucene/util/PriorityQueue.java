@@ -16,7 +16,6 @@
  */
 package org.apache.lucene.util;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -45,7 +44,7 @@ public abstract class PriorityQueue<T> implements Iterable<T> {
    * Initializes the PriorityQueue in bulk using a heapify algorithm inspired by Java's
    * {@link java.util.PriorityQueue} implementation.
    */
-  private PriorityQueue(int maxSize, T[] elements, int len) {
+  PriorityQueue(int maxSize, T[] elements, int len) {
     this.maxSize = maxSize;
 
     // We use 1-based indexing in our heap array, so copy the 0th element to the end:
@@ -349,7 +348,6 @@ public abstract class PriorityQueue<T> implements Iterable<T> {
     private T[] buffer;
     private PriorityQueue<T> pq;
 
-
     public Builder(Comparator<T> comparator, int maxSize) {
       this.comparator = comparator;
       this.maxSize = maxSize;
@@ -357,23 +355,6 @@ public abstract class PriorityQueue<T> implements Iterable<T> {
       @SuppressWarnings("unchecked")
       final T[] b = (T[]) new Object[32];
       buffer = b;
-    }
-
-    private void createHeap() {
-      assert pq == null;
-      assert buffer != null;
-      assert size != -1;
-      pq =
-          new PriorityQueue<>(maxSize, buffer, size) {
-            @Override
-            protected boolean lessThan(T a, T b) {
-              return comparator.compare(a, b) < 0;
-            }
-          };
-      assert pq.size == size;
-      assert pq.maxSize == maxSize;
-      buffer = null;
-      size = -1;
     }
 
     public void add(T element) {
@@ -411,6 +392,23 @@ public abstract class PriorityQueue<T> implements Iterable<T> {
         createHeap();
       }
       return pq;
+    }
+
+    private void createHeap() {
+      assert pq == null;
+      assert buffer != null;
+      assert size != -1;
+      pq =
+        new PriorityQueue<>(maxSize, buffer, size) {
+          @Override
+          protected boolean lessThan(T a, T b) {
+            return comparator.compare(a, b) < 0;
+          }
+        };
+      assert pq.size == size;
+      assert pq.maxSize == maxSize;
+      buffer = null;
+      size = -1;
     }
   }
 }

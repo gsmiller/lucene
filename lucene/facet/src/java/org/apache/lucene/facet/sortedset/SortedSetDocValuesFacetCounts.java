@@ -51,6 +51,7 @@ import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.LongValues;
 import org.apache.lucene.util.PriorityQueue.Builder;
+import org.apache.lucene.util.TopNSorter;
 
 /**
  * Compute facets counts from previously indexed {@link SortedSetDocValuesFacetField}, without
@@ -157,27 +158,39 @@ public class SortedSetDocValuesFacetCounts extends Facets {
       int topN)
       throws IOException {
 
+    int bottomCount = 0;
     int dimCount = 0;
     int childCount = 0;
 
-    Builder<OrdAndValue> pqBuilder = new Builder<>(ordAndValueComparator, topN);
+    TopNSorter<OrdAndValue> sorter = null;
+    OrdAndValue reuse = null;
     while (childOrds.hasNext()) {
       int ord = childOrds.next();
       if (counts[ord] > 0) {
         dimCount += counts[ord];
         childCount++;
-        TopOrdAndIntQueue.OrdAndValue e = new TopOrdAndIntQueue.OrdAndValue();
-        e.ord = ord;
-        e.value = counts[ord];
-        pqBuilder.add(e);
+        if (counts[ord] > bottomCount) {
+          if (reuse == null) {
+            reuse = new TopOrdAndIntQueue.OrdAndValue();
+          }
+          reuse.ord = ord;
+          reuse.value = counts[ord];
+          if (sorter == null) {
+            sorter = new TopNSorter<>(ordAndValueComparator, topN);
+          }
+          reuse = sorter.insertWithOverflow(reuse);
+          if (sorter.getTop() != null) {
+            bottomCount = sorter.getTop().value;
+          }
+        }
       }
     }
 
-    if (childCount == 0) {
+    if (sorter == null) {
       return null;
     }
 
-    List<OrdAndValue> topResults = pqBuilder.getSorted();
+    List<OrdAndValue> topResults = sorter.getSorted();
     LabelAndValue[] labelValues = new LabelAndValue[topResults.size()];
     for (int i = 0; i < topResults.size(); i++) {
       OrdAndValue ordAndValue = topResults.get(i);

@@ -30,7 +30,7 @@ import org.apache.lucene.facet.FacetsConfig.DimConfig;
 import org.apache.lucene.facet.LabelAndValue;
 import org.apache.lucene.facet.TopOrdAndIntQueue;
 import org.apache.lucene.facet.TopOrdAndIntQueue.OrdAndValue;
-import org.apache.lucene.util.PriorityQueue.Builder;
+import org.apache.lucene.util.TopNSorter;
 
 /** Base class for all taxonomy-based facets that aggregate to a per-ords int[]. */
 abstract class IntTaxonomyFacets extends TaxonomyFacets {
@@ -172,6 +172,7 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
       return null;
     }
 
+    int bottomValue = 0;
     int totValue = 0;
     int childCount = 0;
 
@@ -180,7 +181,7 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
     // TODO: would be faster if we had a "get the following children" API?  then we
     // can make a single pass over the hashmap
 
-    Builder<OrdAndValue> pqBuilder = new Builder<>(ordAndValueComparator, topN);
+    TopNSorter<OrdAndValue> sorter = null;
     if (sparseValues != null) {
       for (IntIntCursor c : sparseValues) {
         int count = c.value;
@@ -188,10 +189,20 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
         if (parents[ord] == dimOrd && count > 0) {
           totValue += count;
           childCount++;
-          TopOrdAndIntQueue.OrdAndValue e = new TopOrdAndIntQueue.OrdAndValue();
-          e.ord = ord;
-          e.value = count;
-          pqBuilder.add(e);
+          if (count > bottomValue) {
+            if (reuse == null) {
+              reuse = new OrdAndValue();
+            }
+            reuse.ord = ord;
+            reuse.value = count;
+            if (sorter == null) {
+              sorter = new TopNSorter<>(ordAndValueComparator, topN);
+            }
+            reuse = sorter.insertWithOverflow(reuse);
+            if (sorter.getTop() != null) {
+              bottomValue = sorter.getTop().value;
+            }
+          }
         }
       }
     } else {
@@ -203,10 +214,20 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
         if (value > 0) {
           totValue += value;
           childCount++;
-          TopOrdAndIntQueue.OrdAndValue e = new TopOrdAndIntQueue.OrdAndValue();
-          e.ord = ord;
-          e.value = value;
-          pqBuilder.add(e);
+          if (value > bottomValue) {
+            if (reuse == null) {
+              reuse = new TopOrdAndIntQueue.OrdAndValue();
+            }
+            reuse.ord = ord;
+            reuse.value = value;
+            if (sorter == null) {
+              sorter = new TopNSorter<>(ordAndValueComparator, topN);
+            }
+            reuse = sorter.insertWithOverflow(reuse);
+            if (sorter.getTop() != null) {
+              bottomValue = sorter.getTop().value;
+            }
+          }
         }
 
         ord = siblings[ord];
@@ -228,7 +249,7 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
       // Our sum'd dim value is accurate, so we keep it
     }
 
-    List<OrdAndValue> topResults = pqBuilder.getSorted();
+    List<OrdAndValue> topResults = sorter.getSorted();
     LabelAndValue[] labelValues = new LabelAndValue[topResults.size()];
     int[] ordinals = new int[labelValues.length];
     int[] values = new int[labelValues.length];

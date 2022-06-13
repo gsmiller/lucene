@@ -186,6 +186,17 @@ public abstract class CodecReader extends LeafReader {
     return getDocValuesReader().getSortedSet(fi);
   }
 
+  // nocommit
+  @Override
+  public final SortedSetDocValues getFastIterationSortedSetDocValues(String field) throws IOException {
+    ensureOpen();
+    FieldInfo fi = getDVField(field, DocValuesType.SORTED_SET);
+    if (fi == null) {
+      return null;
+    }
+    return getDocValuesReader().getFastIterationSortedSet(fi);
+  }
+
   @Override
   public final NumericDocValues getNormValues(String field) throws IOException {
     ensureOpen();

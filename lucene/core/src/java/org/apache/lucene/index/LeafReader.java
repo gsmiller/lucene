@@ -193,6 +193,11 @@ public abstract class LeafReader extends IndexReader {
    */
   public abstract SortedSetDocValues getSortedSetDocValues(String field) throws IOException;
 
+  // nocommit
+  public SortedSetDocValues getFastIterationSortedSetDocValues(String field) throws IOException {
+    return getSortedSetDocValues(field);
+  }
+
   /**
    * Returns {@link NumericDocValues} representing norms for this field, or null if no {@link
    * NumericDocValues} were indexed. The returned instance should only be used by a single thread.

@@ -645,7 +645,7 @@ public class MultiDocValues {
     if (size == 0) {
       return null;
     } else if (size == 1) {
-      return leaves.get(0).reader().getSortedSetDocValues(field);
+      return leaves.get(0).reader().getFastIterationSortedSetDocValues(field);
     }
 
     boolean anyReal = false;
@@ -654,7 +654,7 @@ public class MultiDocValues {
     long totalCost = 0;
     for (int i = 0; i < size; i++) {
       LeafReaderContext context = leaves.get(i);
-      SortedSetDocValues v = context.reader().getSortedSetDocValues(field);
+      SortedSetDocValues v = context.reader().getFastIterationSortedSetDocValues(field);
       if (v == null) {
         v = DocValues.emptySortedSet();
       } else {

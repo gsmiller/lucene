@@ -299,7 +299,7 @@ public class DefaultSortedSetDocValuesReaderState extends SortedSetDocValuesRead
       if (fieldInfo != null && fieldInfo.getDocValuesType() != DocValuesType.SORTED_SET) {
         return null;
       }
-      SortedSetDocValues v = reader.getSortedSetDocValues(field);
+      SortedSetDocValues v = reader.getFastIterationSortedSetDocValues(field);
       if (v == null) {
         v = DocValues.emptySortedSet();
       }

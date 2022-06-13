@@ -235,7 +235,7 @@ public class StringValueFacetCounts extends Facets {
     }
 
     if (leafCount == 1) {
-      return DocValues.getSortedSet(leaves.get(0).reader(), field);
+      return DocValues.getFastIterationSortedSet(leaves.get(0).reader(), field);
     }
 
     // A good bit of this logic is forked from MultiDocValues so we can re-use an ordinal map
@@ -244,7 +244,7 @@ public class StringValueFacetCounts extends Facets {
     long cost = 0;
     for (int i = 0; i < leafCount; i++) {
       LeafReaderContext context = leaves.get(i);
-      SortedSetDocValues dv = DocValues.getSortedSet(context.reader(), field);
+      SortedSetDocValues dv = DocValues.getFastIterationSortedSet(context.reader(), field);
       docValues[i] = dv;
       starts[i] = context.docBase;
       cost += dv.cost();

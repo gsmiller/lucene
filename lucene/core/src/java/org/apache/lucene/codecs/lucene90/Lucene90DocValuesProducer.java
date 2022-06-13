@@ -1425,6 +1425,54 @@ final class Lucene90DocValuesProducer extends DocValuesProducer {
     }
   }
 
+  // nocommit
+  @Override
+  public SortedSetDocValues getFastIterationSortedSet(FieldInfo field) throws IOException {
+    SortedSetEntry entry = sortedSets.get(field.name);
+    if (entry.singleValueEntry != null) {
+      return DocValues.singleton(getSorted(entry.singleValueEntry));
+    }
+
+    final SortedNumericDocValues ords = getSortedNumeric(entry.ordsEntry);
+    return new BaseSortedSetDocValues(entry, data) {
+
+      @Override
+      public long nextOrd() throws IOException {
+        return ords.nextValue();
+      }
+
+      @Override
+      public long docValueCount() {
+        return ords.docValueCount();
+      }
+
+      @Override
+      public boolean advanceExact(int target) throws IOException {
+        return ords.advanceExact(target);
+      }
+
+      @Override
+      public int docID() {
+        return ords.docID();
+      }
+
+      @Override
+      public int nextDoc() throws IOException {
+        return ords.nextDoc();
+      }
+
+      @Override
+      public int advance(int target) throws IOException {
+        return ords.advance(target);
+      }
+
+      @Override
+      public long cost() {
+        return ords.cost();
+      }
+    };
+  }
+
   @Override
   public SortedSetDocValues getSortedSet(FieldInfo field) throws IOException {
     SortedSetEntry entry = sortedSets.get(field.name);

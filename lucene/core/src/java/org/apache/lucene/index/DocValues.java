@@ -304,6 +304,20 @@ public final class DocValues {
     return dv;
   }
 
+  public static SortedSetDocValues getFastIterationSortedSet(LeafReader reader, String field)
+    throws IOException {
+    SortedSetDocValues dv = reader.getFastIterationSortedSetDocValues(field);
+    if (dv == null) {
+      SortedDocValues sorted = reader.getSortedDocValues(field);
+      if (sorted == null) {
+        checkField(reader, field, DocValuesType.SORTED, DocValuesType.SORTED_SET);
+        return emptySortedSet();
+      }
+      dv = singleton(sorted);
+    }
+    return dv;
+  }
+
   /**
    * Returns SortedSetDocValues for the field, or {@link #emptySortedSet} if it has none.
    *

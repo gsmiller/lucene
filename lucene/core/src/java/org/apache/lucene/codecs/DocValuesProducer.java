@@ -73,6 +73,11 @@ public abstract class DocValuesProducer implements Closeable {
    */
   public abstract SortedSetDocValues getSortedSet(FieldInfo field) throws IOException;
 
+  // nocommit
+  public SortedSetDocValues getFastIterationSortedSet(FieldInfo field) throws IOException {
+    return getSortedSet(field);
+  }
+
   /**
    * Checks consistency of this producer
    *

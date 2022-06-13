@@ -86,7 +86,7 @@ public class SortedSetDocValuesFacetCounts extends AbstractSortedSetDocValueFace
   // Variant of countOneSegment, that has No Hits or Live Docs
   private void countOneSegmentNHLD(OrdinalMap ordinalMap, LeafReader reader, int segOrd)
       throws IOException {
-    SortedSetDocValues multiValues = DocValues.getSortedSet(reader, field);
+    SortedSetDocValues multiValues = DocValues.getFastIterationSortedSet(reader, field);
     if (multiValues == null) {
       // nothing to count
       return;
@@ -161,7 +161,7 @@ public class SortedSetDocValuesFacetCounts extends AbstractSortedSetDocValueFace
   private void countOneSegment(
       OrdinalMap ordinalMap, LeafReader reader, int segOrd, MatchingDocs hits, Bits liveDocs)
       throws IOException {
-    SortedSetDocValues multiValues = DocValues.getSortedSet(reader, field);
+    SortedSetDocValues multiValues = DocValues.getFastIterationSortedSet(reader, field);
     if (multiValues == null) {
       // nothing to count
       return;

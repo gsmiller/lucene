@@ -99,7 +99,7 @@ public class ConcurrentSortedSetDocValuesFacetCounts extends AbstractSortedSetDo
 
     @Override
     public Void call() throws IOException {
-      SortedSetDocValues multiValues = DocValues.getSortedSet(leafReader, field);
+      SortedSetDocValues multiValues = DocValues.getFastIterationSortedSet(leafReader, field);
       if (multiValues == null) {
         // nothing to count here
         return null;

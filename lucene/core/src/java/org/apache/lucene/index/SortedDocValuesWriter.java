@@ -22,8 +22,9 @@ import static org.apache.lucene.util.ByteBlockPool.BYTE_BLOCK_SIZE;
 import java.io.IOException;
 import java.util.Arrays;
 import org.apache.lucene.codecs.DocValuesConsumer;
-import org.apache.lucene.codecs.DocValuesProducer;
 import org.apache.lucene.search.DocIdSetIterator;
+import org.apache.lucene.search.Sort;
+import org.apache.lucene.search.SortField;
 import org.apache.lucene.util.ByteBlockPool;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefHash;
@@ -110,28 +111,24 @@ class SortedDocValuesWriter extends DocValuesWriter<SortedDocValues> {
     bytesUsed = newBytesUsed;
   }
 
-  private void finish() {
+  @Override
+  SortedDocValues getDocValues() {
+    int valueCount = hash.size();
     if (finalSortedValues == null) {
-      int valueCount = hash.size();
       updateBytesUsed();
       assert finalOrdMap == null && finalOrds == null;
       finalSortedValues = hash.sort();
       finalOrds = pending.build();
       finalOrdMap = new int[valueCount];
-      for (int ord = 0; ord < valueCount; ord++) {
-        finalOrdMap[finalSortedValues[ord]] = ord;
-      }
     }
-  }
-
-  @Override
-  SortedDocValues getDocValues() {
-    finish();
+    for (int ord = 0; ord < valueCount; ord++) {
+      finalOrdMap[finalSortedValues[ord]] = ord;
+    }
     return new BufferedSortedDocValues(
         hash, finalOrds, finalSortedValues, finalOrdMap, docsWithField.iterator());
   }
 
-  private static int[] sortDocValues(int maxDoc, Sorter.DocMap sortMap, SortedDocValues oldValues)
+  private int[] sortDocValues(int maxDoc, Sorter.DocMap sortMap, SortedDocValues oldValues)
       throws IOException {
     int[] ords = new int[maxDoc];
     Arrays.fill(ords, -1);
@@ -146,48 +143,57 @@ class SortedDocValuesWriter extends DocValuesWriter<SortedDocValues> {
   @Override
   public void flush(SegmentWriteState state, Sorter.DocMap sortMap, DocValuesConsumer dvConsumer)
       throws IOException {
-    finish();
+    final int valueCount = hash.size();
+    if (finalOrds == null) {
+      updateBytesUsed();
+      finalSortedValues = hash.sort();
+      finalOrds = pending.build();
+      finalOrdMap = new int[valueCount];
+      for (int ord = 0; ord < valueCount; ord++) {
+        finalOrdMap[finalSortedValues[ord]] = ord;
+      }
+    }
 
-    dvConsumer.addSortedField(
-        fieldInfo,
-        getDocValuesProducer(
-            fieldInfo, hash, finalOrds, finalSortedValues, finalOrdMap, docsWithField, sortMap));
-  }
+    boolean primarySort = false;
+    final Sort sort = state.segmentInfo.getIndexSort();
+    if (sort != null && sort.getSort().length > 0) {
+      for (SortField sf : sort.getSort()) {
+        if (fieldInfo.getName().equals(sf.getField())) {
+          primarySort = true;
+          break;
+        }
+      }
+    }
 
-  static DocValuesProducer getDocValuesProducer(
-      FieldInfo writerFieldInfo,
-      BytesRefHash hash,
-      PackedLongValues ords,
-      int[] sortedValues,
-      int[] ordMap,
-      DocsWithFieldSet docsWithField,
-      Sorter.DocMap sortMap)
-      throws IOException {
     final int[] sorted;
     if (sortMap != null) {
       sorted =
           sortDocValues(
-              sortMap.size(),
+              state.segmentInfo.maxDoc(),
               sortMap,
               new BufferedSortedDocValues(
-                  hash, ords, sortedValues, ordMap, docsWithField.iterator()));
+                  hash, finalOrds, finalSortedValues, finalOrdMap, docsWithField.iterator()));
     } else {
       sorted = null;
     }
-    return new EmptyDocValuesProducer() {
-      @Override
-      public SortedDocValues getSorted(FieldInfo fieldInfoIn) {
-        if (fieldInfoIn != writerFieldInfo) {
-          throw new IllegalArgumentException("wrong fieldInfo");
-        }
-        final SortedDocValues buf =
-            new BufferedSortedDocValues(hash, ords, sortedValues, ordMap, docsWithField.iterator());
-        if (sorted == null) {
-          return buf;
-        }
-        return new SortingSortedDocValues(buf, sorted);
-      }
-    };
+    dvConsumer.addSortedField(
+        fieldInfo,
+        new EmptyDocValuesProducer() {
+          @Override
+          public SortedDocValues getSorted(FieldInfo fieldInfoIn) {
+            if (fieldInfoIn != fieldInfo) {
+              throw new IllegalArgumentException("wrong fieldInfo");
+            }
+            final SortedDocValues buf =
+                new BufferedSortedDocValues(
+                    hash, finalOrds, finalSortedValues, finalOrdMap, docsWithField.iterator());
+            if (sorted == null) {
+              return buf;
+            }
+            return new SortingSortedDocValues(buf, sorted);
+          }
+        },
+        primarySort);
   }
 
   static class BufferedSortedDocValues extends SortedDocValues {

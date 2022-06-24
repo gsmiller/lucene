@@ -24,6 +24,8 @@ import java.util.Arrays;
 import org.apache.lucene.codecs.DocValuesConsumer;
 import org.apache.lucene.codecs.DocValuesProducer;
 import org.apache.lucene.search.DocIdSetIterator;
+import org.apache.lucene.search.Sort;
+import org.apache.lucene.search.SortField;
 import org.apache.lucene.util.ByteBlockPool;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefHash;
@@ -148,10 +150,22 @@ class SortedDocValuesWriter extends DocValuesWriter<SortedDocValues> {
       throws IOException {
     finish();
 
+    boolean primarySort = false;
+    final Sort sort = state.segmentInfo.getIndexSort();
+    if (sort != null && sort.getSort().length > 0) {
+      for (SortField sf : sort.getSort()) {
+        if (fieldInfo.getName().equals(sf.getField())) {
+          primarySort = true;
+          break;
+        }
+      }
+    }
+
     dvConsumer.addSortedField(
         fieldInfo,
         getDocValuesProducer(
-            fieldInfo, hash, finalOrds, finalSortedValues, finalOrdMap, docsWithField, sortMap));
+            fieldInfo, hash, finalOrds, finalSortedValues, finalOrdMap, docsWithField, sortMap),
+        primarySort);
   }
 
   static DocValuesProducer getDocValuesProducer(

@@ -41,6 +41,8 @@ import org.apache.lucene.index.SortedNumericDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.index.TermState;
 import org.apache.lucene.index.TermsEnum;
+import org.apache.lucene.search.Sort;
+import org.apache.lucene.search.SortField;
 import org.apache.lucene.util.AttributeSource;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
@@ -96,10 +98,11 @@ public abstract class DocValuesConsumer implements Closeable {
    *
    * @param field field information
    * @param valuesProducer produces the values and ordinals to write
+   * @param primarySort true if the field is the primary sort of the index, else false
    * @throws IOException if an I/O error occurred.
    */
-  public abstract void addSortedField(FieldInfo field, DocValuesProducer valuesProducer)
-      throws IOException;
+  public abstract void addSortedField(
+      FieldInfo field, DocValuesProducer valuesProducer, boolean primarySort) throws IOException;
 
   /**
    * Writes pre-sorted numeric docvalues for a field
@@ -661,7 +664,16 @@ public abstract class DocValuesConsumer implements Closeable {
 
     // step 2: create ordinal map (this conceptually does the "merging")
     final OrdinalMap map = OrdinalMap.build(null, liveTerms, weights, PackedInts.COMPACT);
-
+    boolean primarySort = false;
+    final Sort sort = mergeState.segmentInfo.getIndexSort();
+    if (sort != null && sort.getSort().length > 0) {
+      for (SortField sf : sort.getSort()) {
+        if (fieldInfo.getName().equals(sf.getField())) {
+          primarySort = true;
+          break;
+        }
+      }
+    }
     // step 3: add field
     addSortedField(
         fieldInfo,
@@ -694,7 +706,8 @@ public abstract class DocValuesConsumer implements Closeable {
 
             return mergeSortedValues(subs, mergeState.needsIndexSort, map);
           }
-        });
+        },
+        primarySort);
   }
 
   private static SortedDocValues mergeSortedValues(

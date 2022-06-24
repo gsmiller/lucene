@@ -49,6 +49,7 @@ import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
+import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.LongsRef;
 import org.apache.lucene.util.MathUtil;
@@ -488,57 +489,102 @@ final class Lucene90DocValuesConsumer extends DocValuesConsumer {
   }
 
   @Override
-  public void addSortedField(FieldInfo field, DocValuesProducer valuesProducer) throws IOException {
+  public void addSortedField(FieldInfo field, DocValuesProducer valuesProducer, boolean primarySort)
+      throws IOException {
     meta.writeInt(field.number);
     meta.writeByte(Lucene90DocValuesFormat.SORTED);
-    doAddSortedField(field, valuesProducer);
+    doAddSortedField(field, valuesProducer, primarySort);
   }
 
-  private void doAddSortedField(FieldInfo field, DocValuesProducer valuesProducer)
-      throws IOException {
-    writeValues(
-        field,
-        new EmptyDocValuesProducer() {
-          @Override
-          public SortedNumericDocValues getSortedNumeric(FieldInfo field) throws IOException {
-            SortedDocValues sorted = valuesProducer.getSorted(field);
-            NumericDocValues sortedOrds =
-                new NumericDocValues() {
-                  @Override
-                  public long longValue() throws IOException {
-                    return sorted.ordValue();
-                  }
+  private void doAddSortedField(
+      FieldInfo field, DocValuesProducer valuesProducer, boolean primarySort) throws IOException {
+    long[] valuesStats =
+        writeValues(
+            field,
+            new EmptyDocValuesProducer() {
+              @Override
+              public SortedNumericDocValues getSortedNumeric(FieldInfo field) throws IOException {
+                SortedDocValues sorted = valuesProducer.getSorted(field);
+                NumericDocValues sortedOrds =
+                    new NumericDocValues() {
+                      @Override
+                      public long longValue() throws IOException {
+                        return sorted.ordValue();
+                      }
 
-                  @Override
-                  public boolean advanceExact(int target) throws IOException {
-                    return sorted.advanceExact(target);
-                  }
+                      @Override
+                      public boolean advanceExact(int target) throws IOException {
+                        return sorted.advanceExact(target);
+                      }
 
-                  @Override
-                  public int docID() {
-                    return sorted.docID();
-                  }
+                      @Override
+                      public int docID() {
+                        return sorted.docID();
+                      }
 
-                  @Override
-                  public int nextDoc() throws IOException {
-                    return sorted.nextDoc();
-                  }
+                      @Override
+                      public int nextDoc() throws IOException {
+                        return sorted.nextDoc();
+                      }
 
-                  @Override
-                  public int advance(int target) throws IOException {
-                    return sorted.advance(target);
-                  }
+                      @Override
+                      public int advance(int target) throws IOException {
+                        return sorted.advance(target);
+                      }
 
-                  @Override
-                  public long cost() {
-                    return sorted.cost();
-                  }
-                };
-            return DocValues.singleton(sortedOrds);
-          }
-        },
-        true);
+                      @Override
+                      public long cost() {
+                        return sorted.cost();
+                      }
+                    };
+                return DocValues.singleton(sortedOrds);
+              }
+            },
+            true);
     addTermsDict(DocValues.singleton(valuesProducer.getSorted(field)));
+    // Add jump table if the field is the primary sort, and there is more than 64 documents per term
+    if (primarySort) {
+      final SortedDocValues values = valuesProducer.getSorted(field);
+      meta.writeByte((byte) 1);
+      addOrdsJumpTable(values);
+    } else {
+      meta.writeByte((byte) 0);
+    }
+  }
+
+  private void addOrdsJumpTable(SortedDocValues values) throws IOException {
+    meta.writeInt(DIRECT_MONOTONIC_BLOCK_SHIFT);
+    final long start = data.getFilePointer();
+    final ByteBuffersDataOutput addressBuffer = new ByteBuffersDataOutput();
+    final ByteBuffersIndexOutput addressOutput =
+        new ByteBuffersIndexOutput(addressBuffer, "temp", "temp");
+
+    FixedBitSet transitionDocs = new FixedBitSet(maxDoc);
+    values.nextDoc();
+    int doc = values.advanceOrd();
+    int transitions = 0;
+    while (doc != DocIdSetIterator.NO_MORE_DOCS) {
+      transitionDocs.set(doc);
+      transitions++;
+      doc = values.advanceOrd();
+    }
+
+    final DirectMonotonicWriter writer =
+        DirectMonotonicWriter.getInstance(
+            meta, addressOutput, transitions + 1, DIRECT_MONOTONIC_BLOCK_SHIFT);
+
+    doc = -1;
+    for (int i = 0; i < transitions; i++) {
+      doc = transitionDocs.nextSetBit(doc + 1);
+      assert doc != DocIdSetIterator.NO_MORE_DOCS;
+      writer.add(doc);
+    }
+
+    writer.add(DocIdSetIterator.NO_MORE_DOCS);
+    writer.finish();
+    addressBuffer.copyTo(data);
+    meta.writeLong(start);
+    meta.writeLong(data.getFilePointer() - start);
   }
 
   private void addTermsDict(SortedSetDocValues values) throws IOException {
@@ -566,7 +612,6 @@ final class Lucene90DocValuesConsumer extends DocValuesConsumer {
     LZ4.FastCompressionHashTable ht = new LZ4.FastCompressionHashTable();
     ByteArrayDataOutput bufferedOutput = new ByteArrayDataOutput(termsDictBuffer);
     int dictLength = 0;
-
     for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
       if ((ord & blockMask) == 0) {
         if (ord != 0) {
@@ -764,7 +809,8 @@ final class Lucene90DocValuesConsumer extends DocValuesConsumer {
               return SortedSetSelector.wrap(
                   valuesProducer.getSortedSet(field), SortedSetSelector.Type.MIN);
             }
-          });
+          },
+          false);
       return;
     }
     meta.writeByte((byte) 1); // multiValued (1 = multiValued)

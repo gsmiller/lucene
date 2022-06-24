@@ -424,7 +424,7 @@ final class Lucene70DocValuesConsumer extends DocValuesConsumer {
   }
 
   @Override
-  public void addSortedField(FieldInfo field, DocValuesProducer valuesProducer) throws IOException {
+  public void addSortedField(FieldInfo field, DocValuesProducer valuesProducer, boolean primarySort) throws IOException {
     meta.writeInt(field.number);
     meta.writeByte(Lucene70DocValuesFormat.SORTED);
     doAddSortedField(field, valuesProducer);

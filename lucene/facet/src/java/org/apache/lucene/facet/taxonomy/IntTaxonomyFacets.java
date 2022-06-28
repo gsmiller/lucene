@@ -256,13 +256,13 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
     int childCount = 0;
     TopOrdAndIntQueue.OrdAndValue reuse = null;
 
-    // TODO: would be faster if we had a "get the following children" API?  then we
-    // can make a single pass over the hashmap
+    int[] children = getChildren();
+    int[] siblings = getSiblings();
+    int ord = children[pathOrd];
     if (sparseValues != null) {
-      for (IntIntCursor c : sparseValues) {
-        int value = c.value;
-        int ord = c.key;
-        if (parents[ord] == pathOrd && value > 0) {
+      while (ord != TaxonomyReader.INVALID_ORDINAL) {
+        int value = sparseValues.get(ord);
+        if (value > 0) {
           aggregatedValue = aggregationFunction.aggregate(aggregatedValue, value);
           childCount++;
           if (value > bottomValue) {
@@ -277,11 +277,9 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
             }
           }
         }
+        ord = siblings[ord];
       }
     } else {
-      int[] children = getChildren();
-      int[] siblings = getSiblings();
-      int ord = children[pathOrd];
       while (ord != TaxonomyReader.INVALID_ORDINAL) {
         int value = values[ord];
         if (value > 0) {

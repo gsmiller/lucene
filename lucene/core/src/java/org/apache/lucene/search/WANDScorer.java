@@ -530,17 +530,57 @@ final class WANDScorer extends Scorer {
 
   /** Move iterators to the tail until there is a potential match. */
   private int doNextCompetitiveCandidate() throws IOException {
-    while (leadMaxScore + tailMaxScore < minCompetitiveScore || freq + tailSize < minShouldMatch) {
-      // no match on doc is possible, move to the next potential match
-      pushBackLeads(doc + 1);
-      moveToNextCandidate(doc + 1);
-      assert ensureConsistent();
-      if (doc == DocIdSetIterator.NO_MORE_DOCS) {
-        break;
+    while (true) {
+      while (leadMaxScore + tailMaxScore < minCompetitiveScore || freq + tailSize < minShouldMatch) {
+        // no match on doc is possible, move to the next potential match
+        pushBackLeads(doc + 1);
+        moveToNextCandidate(doc + 1);
+        assert ensureConsistent();
+        if (doc == DocIdSetIterator.NO_MORE_DOCS) {
+          return doc;
+        }
+      }
+
+      while (leadMaxScore < minCompetitiveScore || freq < minShouldMatch) {
+        if (leadMaxScore + tailMaxScore < minCompetitiveScore
+          || freq + tailSize < minShouldMatch) {
+          break;
+        } else {
+          // a match on doc is still possible, try to
+          // advance scorers from the tail
+          advanceTail();
+        }
+      }
+
+      if (scoreMode.needsScores() == false) {
+        // this scorer is only used for `minShouldMatch`, not scoring
+        return doc;
+      }
+
+      // It is often faster to compute a score to get a better approximation of the maximum score
+      // of the current document than to advance a scorer from `tail`, since the latter often
+      // requires decompressing a full block of postings.
+      double score = 0;
+      for (DisiWrapper s = lead; s != null; s = s.next) {
+        score += s.scorer.score();
+      }
+
+      while (true) {
+        if (MaxScoreSumPropagator.scoreSumUpperBound(
+          score + unscaleScore(tailMaxScore, scalingFactor), tailSize + 1)
+          < unscaledMinCompetitiveScore) {
+          break;
+        }
+        if (tailSize == 0) {
+          WANDScorer.this.score = (float) score;
+          return doc;
+        }
+        DisiWrapper next = advanceTail();
+        if (next != null) {
+          score += next.scorer.score();
+        }
       }
     }
-
-    return doc;
   }
 
   @Override

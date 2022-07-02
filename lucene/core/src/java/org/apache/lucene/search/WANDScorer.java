@@ -271,101 +271,44 @@ final class WANDScorer extends Scorer {
 
   @Override
   public DocIdSetIterator iterator() {
-    return TwoPhaseIterator.asDocIdSetIterator(twoPhaseIterator());
-  }
-
-  @Override
-  public TwoPhaseIterator twoPhaseIterator() {
-    DocIdSetIterator approximation =
-        new DocIdSetIterator() {
-
-          @Override
-          public int docID() {
-            return doc;
-          }
-
-          @Override
-          public int nextDoc() throws IOException {
-            return advance(doc + 1);
-          }
-
-          @Override
-          public int advance(int target) throws IOException {
-            assert ensureConsistent();
-
-            // Move 'lead' iterators back to the tail
-            pushBackLeads(target);
-
-            // Advance 'head' as well
-            advanceHead(target);
-
-            // Pop the new 'lead' from 'head'
-            moveToNextCandidate(target);
-
-            if (doc == DocIdSetIterator.NO_MORE_DOCS) {
-              return DocIdSetIterator.NO_MORE_DOCS;
-            }
-
-            assert ensureConsistent();
-
-            // Advance to the next possible match
-            return doNextCompetitiveCandidate();
-          }
-
-          @Override
-          public long cost() {
-            return cost;
-          }
-        };
-    return new TwoPhaseIterator(approximation) {
+    return new DocIdSetIterator() {
 
       @Override
-      public boolean matches() throws IOException {
-        while (leadMaxScore < minCompetitiveScore || freq < minShouldMatch) {
-          if (leadMaxScore + tailMaxScore < minCompetitiveScore
-              || freq + tailSize < minShouldMatch) {
-            return false;
-          } else {
-            // a match on doc is still possible, try to
-            // advance scorers from the tail
-            advanceTail();
-          }
-        }
-
-        if (scoreMode.needsScores() == false) {
-          // this scorer is only used for `minShouldMatch`, not scoring
-          return true;
-        }
-
-        // It is often faster to compute a score to get a better approximation of the maximum score
-        // of the current document than to advance a scorer from `tail`, since the latter often
-        // requires decompressing a full block of postings.
-        double score = 0;
-        for (DisiWrapper s = lead; s != null; s = s.next) {
-          score += s.scorer.score();
-        }
-
-        while (true) {
-          if (MaxScoreSumPropagator.scoreSumUpperBound(
-                  score + unscaleScore(tailMaxScore, scalingFactor), tailSize + 1)
-              < unscaledMinCompetitiveScore) {
-            return false;
-          }
-          if (tailSize == 0) {
-            WANDScorer.this.score = (float) score;
-            return true;
-          }
-          DisiWrapper next = advanceTail();
-          if (next != null) {
-            score += next.scorer.score();
-          }
-        }
+      public int docID() {
+        return doc;
       }
 
       @Override
-      public float matchCost() {
-        // maximum number of scorer that matches() might advance
-        return tail.length;
+      public int nextDoc() throws IOException {
+        return advance(doc + 1);
+      }
+
+      @Override
+      public int advance(int target) throws IOException {
+        assert ensureConsistent();
+
+        // Move 'lead' iterators back to the tail
+        pushBackLeads(target);
+
+        // Advance 'head' as well
+        advanceHead(target);
+
+        // Pop the new 'lead' from 'head'
+        moveToNextCandidate(target);
+
+        if (doc == DocIdSetIterator.NO_MORE_DOCS) {
+          return DocIdSetIterator.NO_MORE_DOCS;
+        }
+
+        assert ensureConsistent();
+
+        // Advance to the next possible match
+        return doNextMatch();
+      }
+
+      @Override
+      public long cost() {
+        return cost;
       }
     };
   }
@@ -528,8 +471,8 @@ final class WANDScorer extends Scorer {
     }
   }
 
-  /** Move iterators to the tail until there is a potential match. */
-  private int doNextCompetitiveCandidate() throws IOException {
+  /** Move iterators to the tail until there is a confirmed match. */
+  private int doNextMatch() throws IOException {
     nextCandidate:
     while (true) {
       while (leadMaxScore + tailMaxScore < minCompetitiveScore || freq + tailSize < minShouldMatch) {
@@ -545,6 +488,12 @@ final class WANDScorer extends Scorer {
       while (leadMaxScore < minCompetitiveScore || freq < minShouldMatch) {
         if (leadMaxScore + tailMaxScore < minCompetitiveScore
           || freq + tailSize < minShouldMatch) {
+          pushBackLeads(doc + 1);
+          moveToNextCandidate(doc + 1);
+          assert ensureConsistent();
+          if (doc == DocIdSetIterator.NO_MORE_DOCS) {
+            return doc;
+          }
           continue nextCandidate;
         } else {
           // a match on doc is still possible, try to

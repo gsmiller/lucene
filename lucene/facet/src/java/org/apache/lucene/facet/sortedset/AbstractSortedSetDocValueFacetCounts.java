@@ -24,16 +24,21 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.PrimitiveIterator;
+import java.util.function.IntUnaryOperator;
+
+import com.carrotsearch.hppc.IntArrayList;
 import org.apache.lucene.facet.FacetResult;
 import org.apache.lucene.facet.Facets;
 import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.FacetsConfig.DimConfig;
 import org.apache.lucene.facet.LabelAndValue;
 import org.apache.lucene.facet.TopOrdAndIntQueue;
+import org.apache.lucene.facet.TopOrdAndIntQueue.OrdAndValue;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesReaderState.DimTree;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesReaderState.OrdRange;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.InPlaceMergeSorter;
 import org.apache.lucene.util.PriorityQueue;
 
 /** Base class for SSDV faceting implementations. */
@@ -80,24 +85,47 @@ abstract class AbstractSortedSetDocValueFacetCounts extends Facets {
       return null;
     }
 
-    // Compute the actual results:
     int pathCount = 0;
-    List<LabelAndValue> labelValues = new ArrayList<>();
+    IntArrayList childOrds = new IntArrayList();
+    IntArrayList counts = new IntArrayList();
     while (iterationCursor.childIterator.hasNext()) {
       int ord = iterationCursor.childIterator.next();
       int count = getCount(ord);
       if (count > 0) {
         pathCount += count;
-        final BytesRef term = dv.lookupOrd(ord);
-        String[] parts = FacetsConfig.stringToPath(term.utf8ToString());
-        labelValues.add(new LabelAndValue(parts[parts.length - 1], count));
+        childOrds.add(ord);
+        counts.add(count);
       }
+    }
+
+    assert childOrds.size() == counts.size();
+    new InPlaceMergeSorter() {
+      @Override
+      protected int compare(int i, int j) {
+        return Integer.compare(childOrds.get(i), childOrds.get(j));
+      }
+
+      @Override
+      protected void swap(int i, int j) {
+        int tmp = childOrds.get(i);
+        childOrds.set(i, childOrds.get(j));
+        childOrds.set(j, tmp);
+        tmp = counts.get(i);
+        counts.set(i, counts.get(j));
+        counts.set(j, tmp);
+      }
+    }.sort(0, childOrds.size());
+
+    LabelAndValue[] labelValues = new LabelAndValue[childOrds.size()];
+    for (int i = 0; i < childOrds.size(); i++) {
+      final BytesRef term = dv.lookupOrd(childOrds.get(i));
+      String[] parts = FacetsConfig.stringToPath(term.utf8ToString());
+      labelValues[i] = new LabelAndValue(parts[parts.length - 1], counts.get(i));
     }
 
     pathCount = adjustPathCountIfNecessary(dimConfig, iterationCursor.pathOrd, pathCount);
 
-    return new FacetResult(
-        dim, path, pathCount, labelValues.toArray(new LabelAndValue[0]), labelValues.size());
+    return new FacetResult(dim, path, pathCount, labelValues, labelValues.length);
   }
 
   @Override
@@ -372,13 +400,44 @@ abstract class AbstractSortedSetDocValueFacetCounts extends Facets {
     TopOrdAndIntQueue q = topChildrenForPath.q;
     assert q != null;
 
-    LabelAndValue[] labelValues = new LabelAndValue[q.size()];
-    for (int i = labelValues.length - 1; i >= 0; i--) {
-      TopOrdAndIntQueue.OrdAndValue ordAndValue = q.pop();
+    int n = q.size();
+    int[] childOrds = new int[n];
+    int[] counts = new int[n];
+    int[] posMap = new int[n];
+    for (int i = 0; i < n; i++) {
+      OrdAndValue ordAndValue = q.pop();
       assert ordAndValue != null;
-      final BytesRef term = dv.lookupOrd(ordAndValue.ord);
+      childOrds[i] = ordAndValue.ord;
+      counts[i] = ordAndValue.value;
+      posMap[i] = i;
+    }
+
+    new InPlaceMergeSorter() {
+      @Override
+      protected int compare(int i, int j) {
+        return Integer.compare(childOrds[i], childOrds[j]);
+      }
+
+      @Override
+      protected void swap(int i, int j) {
+        int tmp = childOrds[i];
+        childOrds[i] = childOrds[j];
+        childOrds[j] = tmp;
+        tmp = counts[i];
+        counts[i] = counts[j];
+        counts[j] = tmp;
+        tmp = posMap[i];
+        posMap[i] = posMap[j];
+        posMap[j] = tmp;
+      }
+    }.sort(0, n);
+
+    LabelAndValue[] labelValues = new LabelAndValue[n];
+    for (int i = 0; i < n; i++) {
+      int pos = posMap[i];
+      final BytesRef term = dv.lookupOrd(childOrds[i]);
       String[] parts = FacetsConfig.stringToPath(term.utf8ToString());
-      labelValues[i] = new LabelAndValue(parts[parts.length - 1], ordAndValue.value);
+      labelValues[pos] = new LabelAndValue(parts[parts.length - 1], counts[i]);
     }
 
     return new FacetResult(

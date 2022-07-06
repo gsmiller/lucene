@@ -86,9 +86,17 @@ class ReqOptSumScorer extends Scorer {
             float maxScore;
 
             private void moveToNextBlock(int target) throws IOException {
-              upTo = advanceShallow(target);
+              upTo = reqScorer.advanceShallow(target);
+              if (optScorer.docID() <= target) {
+                upTo = Math.min(upTo, optScorer.advanceShallow(target));
+                maxScore = optScorer.getMaxScore(upTo);
+              } else if (optScorer.docID() != NO_MORE_DOCS) {
+                upTo = Math.min(upTo, optScorer.docID() - 1);
+                maxScore = optScorer.getMaxScore(upTo);
+              }
+
               float reqMaxScoreBlock = reqScorer.getMaxScore(upTo);
-              maxScore = getMaxScore(upTo);
+              maxScore += reqMaxScoreBlock;
 
               // Potentially move to a conjunction
               optIsRequired = reqMaxScoreBlock < minScore;
@@ -129,16 +137,19 @@ class ReqOptSumScorer extends Scorer {
                 reqApproximation.advance(target);
                 return NO_MORE_DOCS;
               }
+
+              if (minScore == 0) {
+                return reqApproximation.advance(target);
+              }
+
               int reqDoc = target;
               advanceHead:
               for (; ; ) {
-                if (minScore != 0) {
-                  reqDoc = advanceImpacts(reqDoc);
-                }
+                reqDoc = advanceImpacts(reqDoc);
                 if (reqApproximation.docID() < reqDoc) {
                   reqDoc = reqApproximation.advance(reqDoc);
                 }
-                if (reqDoc == NO_MORE_DOCS || optIsRequired == false) {
+                if (optIsRequired == false || reqDoc == NO_MORE_DOCS) {
                   return reqDoc;
                 }
 
@@ -148,11 +159,11 @@ class ReqOptSumScorer extends Scorer {
                 }
 
                 // Find the next common doc within the current block
+                int optDoc = optApproximation.docID();
+                if (optDoc < reqDoc) {
+                  optDoc = optApproximation.advance(reqDoc);
+                }
                 for (; ; ) { // invariant: reqDoc >= optDoc
-                  int optDoc = optApproximation.docID();
-                  if (optDoc < reqDoc) {
-                    optDoc = optApproximation.advance(reqDoc);
-                  }
                   if (optDoc > upperBound) {
                     reqDoc = upperBound + 1;
                     continue advanceHead;
@@ -165,9 +176,11 @@ class ReqOptSumScorer extends Scorer {
                     }
                   }
 
-                  if (reqDoc == NO_MORE_DOCS || optDoc == reqDoc) {
+                  if (optDoc == reqDoc || reqDoc == NO_MORE_DOCS) {
                     return reqDoc;
                   }
+
+                  optDoc = optApproximation.advance(reqDoc);
                 }
               }
             }
@@ -184,56 +197,98 @@ class ReqOptSumScorer extends Scorer {
           };
     }
 
-    if (reqTwoPhase == null && optTwoPhase == null) {
-      this.twoPhase = null;
+    if (reqTwoPhase == null) {
+      if (optTwoPhase == null) {
+        this.twoPhase = null;
+      } else {
+        this.twoPhase = new TwoPhaseIterator(approximation) {
+          @Override
+          public boolean matches() throws IOException {
+            if (optIsRequired) {
+              // The below condition is rare and can only happen if we transitioned to
+              // optIsRequired=true
+              // after the opt approximation was advanced and before it was confirmed.
+              if (reqScorer.docID() != optApproximation.docID()) {
+                if (optApproximation.docID() < reqScorer.docID()) {
+                  optApproximation.advance(reqScorer.docID());
+                }
+                if (reqScorer.docID() != optApproximation.docID()) {
+                  return false;
+                }
+              }
+              if (optTwoPhase.matches() == false) {
+                // Advance the iterator to make it clear it doesn't match the current doc id
+                optApproximation.nextDoc();
+                return false;
+              }
+            } else if (optApproximation.docID() == reqScorer.docID()
+              && optTwoPhase.matches() == false) {
+              // Advance the iterator to make it clear it doesn't match the current doc id
+              optApproximation.nextDoc();
+            }
+
+            return true;
+          }
+
+          @Override
+          public float matchCost() {
+            return optTwoPhase.matchCost() + 1;
+          }
+        };
+      }
     } else {
-      this.twoPhase =
+      if (optTwoPhase == null) {
+        this.twoPhase = new TwoPhaseIterator(approximation) {
+          @Override
+          public boolean matches() throws IOException {
+            return reqTwoPhase.matches();
+          }
+
+          @Override
+          public float matchCost() {
+            return reqTwoPhase.matchCost();
+          }
+        };
+      } else {
+        this.twoPhase =
           new TwoPhaseIterator(approximation) {
 
             @Override
             public boolean matches() throws IOException {
-              if (reqTwoPhase != null && reqTwoPhase.matches() == false) {
+              if (reqTwoPhase.matches() == false) {
                 return false;
               }
-              if (optTwoPhase != null) {
-                if (optIsRequired) {
-                  // The below condition is rare and can only happen if we transitioned to
-                  // optIsRequired=true
-                  // after the opt approximation was advanced and before it was confirmed.
-                  if (reqScorer.docID() != optApproximation.docID()) {
-                    if (optApproximation.docID() < reqScorer.docID()) {
-                      optApproximation.advance(reqScorer.docID());
-                    }
-                    if (reqScorer.docID() != optApproximation.docID()) {
-                      return false;
-                    }
+              if (optIsRequired) {
+                // The below condition is rare and can only happen if we transitioned to
+                // optIsRequired=true
+                // after the opt approximation was advanced and before it was confirmed.
+                if (reqScorer.docID() != optApproximation.docID()) {
+                  if (optApproximation.docID() < reqScorer.docID()) {
+                    optApproximation.advance(reqScorer.docID());
                   }
-                  if (optTwoPhase.matches() == false) {
-                    // Advance the iterator to make it clear it doesn't match the current doc id
-                    optApproximation.nextDoc();
+                  if (reqScorer.docID() != optApproximation.docID()) {
                     return false;
                   }
-                } else if (optApproximation.docID() == reqScorer.docID()
-                    && optTwoPhase.matches() == false) {
+                }
+                if (optTwoPhase.matches() == false) {
                   // Advance the iterator to make it clear it doesn't match the current doc id
                   optApproximation.nextDoc();
+                  return false;
                 }
+              } else if (optApproximation.docID() == reqScorer.docID()
+                && optTwoPhase.matches() == false) {
+                // Advance the iterator to make it clear it doesn't match the current doc id
+                optApproximation.nextDoc();
               }
               return true;
             }
 
             @Override
             public float matchCost() {
-              float matchCost = 1;
-              if (reqTwoPhase != null) {
-                matchCost += reqTwoPhase.matchCost();
-              }
-              if (optTwoPhase != null) {
-                matchCost += optTwoPhase.matchCost();
-              }
-              return matchCost;
+              return reqTwoPhase.matchCost() + optTwoPhase.matchCost() + 1;
             }
           };
+      }
     }
   }
 

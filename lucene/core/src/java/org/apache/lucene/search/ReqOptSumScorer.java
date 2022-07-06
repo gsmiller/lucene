@@ -133,56 +133,7 @@ class ReqOptSumScorer extends Scorer {
             }
 
             private int advanceInternal(int target) throws IOException {
-              if (target == NO_MORE_DOCS) {
-                reqApproximation.advance(target);
-                return NO_MORE_DOCS;
-              }
-
-              if (minScore == 0) {
-                return reqApproximation.advance(target);
-              }
-
-              int reqDoc = target;
-              advanceHead:
-              for (; ; ) {
-                reqDoc = advanceImpacts(reqDoc);
-                if (reqApproximation.docID() < reqDoc) {
-                  reqDoc = reqApproximation.advance(reqDoc);
-                }
-                if (optIsRequired == false || reqDoc == NO_MORE_DOCS) {
-                  return reqDoc;
-                }
-
-                int upperBound = reqMaxScore < minScore ? NO_MORE_DOCS : upTo;
-                if (reqDoc > upperBound) {
-                  continue;
-                }
-
-                // Find the next common doc within the current block
-                int optDoc = optApproximation.docID();
-                if (optDoc < reqDoc) {
-                  optDoc = optApproximation.advance(reqDoc);
-                }
-                for (; ; ) { // invariant: reqDoc >= optDoc
-                  if (optDoc > upperBound) {
-                    reqDoc = upperBound + 1;
-                    continue advanceHead;
-                  }
-
-                  if (optDoc != reqDoc) {
-                    reqDoc = reqApproximation.advance(optDoc);
-                    if (reqDoc > upperBound) {
-                      continue advanceHead;
-                    }
-                  }
-
-                  if (optDoc == reqDoc || reqDoc == NO_MORE_DOCS) {
-                    return reqDoc;
-                  }
-
-                  optDoc = optApproximation.advance(reqDoc);
-                }
-              }
+              throw new UnsupportedOperationException("foo");
             }
 
             @Override

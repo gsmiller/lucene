@@ -156,6 +156,8 @@ class BlockMaxMaxscoreScorer extends Scorer {
             }
 
             // list adjusted
+            // nocommit: can we bulk add? or do we even need to clear? can we check validity
+            // when popping?
             if (removedEssentialScorer) {
               essentialsScorers.clear();
               for (int i = firstEssentialScorerIndex; i < allScorers.length; ++i) {

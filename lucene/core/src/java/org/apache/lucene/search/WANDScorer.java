@@ -464,6 +464,8 @@ final class WANDScorer extends Scorer {
   private void moveToNextCandidate(int target) throws IOException {
     if (scoreMode == ScoreMode.TOP_SCORES) {
       // Update score bounds if necessary so
+      // nocommit: should we track max possible score of leads, or just directly compute the actual
+      // score of the leads?
       updateMaxScoresIfNecessary(target);
       assert upTo >= target;
 

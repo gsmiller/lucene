@@ -106,7 +106,8 @@ public final class DisiPriorityQueue implements Iterable<DisiWrapper> {
   public void replaceWith(DisiWrapper[] entries, int offset, int len) {
     // Fail early if we're going to over-fill:
     if (len > heap.length) {
-      throw new IndexOutOfBoundsException("Cannot add " + len + " elements to a heap with max capacity of " + heap.length);
+      throw new IndexOutOfBoundsException(
+          "Cannot add " + len + " elements to a heap with max capacity of " + heap.length);
     }
 
     // Reset the size and null-out any references beyond the new size:

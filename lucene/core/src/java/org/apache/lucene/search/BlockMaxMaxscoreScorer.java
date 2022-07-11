@@ -159,10 +159,7 @@ class BlockMaxMaxscoreScorer extends Scorer {
             // nocommit: can we bulk add? or do we even need to clear? can we check validity
             // when popping?
             if (removedEssentialScorer) {
-              essentialsScorers.clear();
-              for (int i = firstEssentialScorerIndex; i < allScorers.length; ++i) {
-                essentialsScorers.add(allScorers[i]);
-              }
+              essentialsScorers.addAll(allScorers, firstEssentialScorerIndex, allScorers.length - firstEssentialScorerIndex);
             }
           }
 
@@ -201,7 +198,6 @@ class BlockMaxMaxscoreScorer extends Scorer {
           }
 
           private void repartitionLists() {
-            essentialsScorers.clear();
             firstEssentialScorerIndex = 0;
             Arrays.sort(allScorers, Comparator.comparingDouble(scorer -> scorer.maxScore));
 
@@ -216,9 +212,7 @@ class BlockMaxMaxscoreScorer extends Scorer {
               firstEssentialScorerIndex++;
               nonEssentialMaxScoreSum += w.maxScore;
             }
-            for (int i = firstEssentialScorerIndex; i < allScorers.length; ++i) {
-              essentialsScorers.add(allScorers[i]);
-            }
+            essentialsScorers.addAll(allScorers, firstEssentialScorerIndex, allScorers.length - firstEssentialScorerIndex);
           }
 
           @Override

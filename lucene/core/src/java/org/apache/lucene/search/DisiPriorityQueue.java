@@ -104,11 +104,6 @@ public final class DisiPriorityQueue implements Iterable<DisiWrapper> {
   }
 
   public void replaceWith(DisiWrapper[] entries, int offset, int len) {
-    replaceWithFast(entries, offset, len);
-//    replaceWithSlow(entries, offset, len);
-  }
-
-  private void replaceWithFast(DisiWrapper[] entries, int offset, int len) {
     // Fail early if we're going to over-fill:
     if (len > heap.length) {
       throw new IndexOutOfBoundsException("Cannot add " + len + " elements to a heap with max capacity of " + heap.length);
@@ -146,22 +141,6 @@ public final class DisiPriorityQueue implements Iterable<DisiWrapper> {
         parentIndex = childIndex;
       }
       heap[parentIndex] = parent;
-    }
-  }
-
-  private void replaceWithSlow(DisiWrapper[] entries, int offset, int len) {
-    clear();
-
-    if (len == 0) {
-      return;
-    }
-
-    if (len > heap.length) {
-      throw new IndexOutOfBoundsException("oob");
-    }
-
-    for (DisiWrapper e : entries) {
-      add(e);
     }
   }
 

@@ -103,8 +103,54 @@ public final class DisiPriorityQueue implements Iterable<DisiWrapper> {
     return heap[0];
   }
 
-  public void addAll(DisiWrapper[] entries, int offset, int len) {
+  public void replaceWith(DisiWrapper[] entries, int offset, int len) {
+    replaceWithFast(entries, offset, len);
+//    replaceWithSlow(entries, offset, len);
+  }
+
+  private void replaceWithFast(DisiWrapper[] entries, int offset, int len) {
+    // Fail early if we're going to over-fill:
+    if (len > heap.length) {
+      throw new IndexOutOfBoundsException("Cannot add " + len + " elements to a heap with max capacity of " + heap.length);
+    }
+
+    // Reset the size and null-out any references beyond the new size:
     size = len;
+    Arrays.fill(heap, len, entries.length, null);
+
+    // Nothing more to do for zero-length:
+    if (len == 0) {
+      return;
+    }
+
+    // Copy the entries over to our heap array:
+    System.arraycopy(entries, offset, heap, 0, len);
+
+    // Heapify in bulk:
+    final int firstLeafIndex = size >>> 1;
+    for (int rootIndex = firstLeafIndex - 1; rootIndex >= 0; rootIndex--) {
+      int parentIndex = rootIndex;
+      DisiWrapper parent = heap[parentIndex];
+      while (parentIndex < firstLeafIndex) {
+        int childIndex = leftNode(parentIndex);
+        int rightChildIndex = rightNode(childIndex);
+        DisiWrapper child = heap[childIndex];
+        if (rightChildIndex < size && heap[rightChildIndex].doc < child.doc) {
+          child = heap[rightChildIndex];
+          childIndex = rightChildIndex;
+        }
+        if (child.doc >= parent.doc) {
+          break;
+        }
+        heap[parentIndex] = child;
+        parentIndex = childIndex;
+      }
+      heap[parentIndex] = parent;
+    }
+  }
+
+  private void replaceWithSlow(DisiWrapper[] entries, int offset, int len) {
+    clear();
 
     if (len == 0) {
       return;
@@ -114,28 +160,8 @@ public final class DisiPriorityQueue implements Iterable<DisiWrapper> {
       throw new IndexOutOfBoundsException("oob");
     }
 
-    System.arraycopy(entries, offset, heap, 0, len);
-
-    int half = size >>> 1;
-    int i = half - 1;
-    for (; i >= 0; i--) {
-      int k = i;
-      DisiWrapper key = heap[k];
-      while (k < half) {
-        int child = leftNode(k);
-        int right = rightNode(child);
-        DisiWrapper c = heap[child];
-        if (right < size && heap[right].doc < c.doc) {
-          c = heap[right];
-          child = right;
-        }
-        if (c.doc >= key.doc) {
-          break;
-        }
-        heap[k] = c;
-        k = child;
-      }
-      heap[k] = key;
+    for (DisiWrapper e : entries) {
+      add(e);
     }
   }
 

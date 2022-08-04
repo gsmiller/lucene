@@ -255,65 +255,115 @@ public class TermInSetQuery extends Query implements Accountable {
                     context, doc, getQuery(), field, termData.iterator()));
       }
 
+      private List<TermAndState> collectTerms(LeafReaderContext context) throws IOException {
+        List<TermAndState> collected = new ArrayList<>();
+
+        final LeafReader reader = context.reader();
+
+        Terms terms = reader.terms(field);
+        if (terms == null) {
+          return collected;
+        }
+        TermsEnum termsEnum = terms.iterator();
+        TermIterator iterator = termData.iterator();
+
+        for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
+          assert field.equals(iterator.field());
+          if (termsEnum.seekExact(term)) {
+            collected.add(new TermAndState(field, termsEnum));
+          }
+        }
+
+        return collected;
+      }
+
       /**
        * On the given leaf context, try to either rewrite to a disjunction if there are few matching
        * terms, or build a bitset containing matching docs.
        */
-      private WeightOrDocIdSet rewrite(LeafReaderContext context) throws IOException {
+      private WeightOrDocIdSet rewrite(LeafReaderContext context, List<TermAndState> collectedTerms) throws IOException {
         final LeafReader reader = context.reader();
+
+        // We will first try to collect up to 'threshold' terms into 'matchingTerms'
+        // if there are too many terms, we will fall back to building the 'builder'
+        final int threshold =
+          Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
+        assert termData.size() > threshold : "Query should have been rewritten";
 
         Terms terms = reader.terms(field);
         if (terms == null) {
           return null;
         }
-        TermsEnum termsEnum = terms.iterator();
-        PostingsEnum docs = null;
-        TermIterator iterator = termData.iterator();
 
-        // We will first try to collect up to 'threshold' terms into 'matchingTerms'
-        // if there are too many terms, we will fall back to building the 'builder'
-        final int threshold =
-            Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
-        assert termData.size() > threshold : "Query should have been rewritten";
-        List<TermAndState> matchingTerms = new ArrayList<>(threshold);
-        DocIdSetBuilder builder = null;
+        if (collectedTerms == null) {
+          TermsEnum termsEnum = terms.iterator();
+          PostingsEnum docs = null;
+          TermIterator iterator = termData.iterator();
 
-        for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
-          assert field.equals(iterator.field());
-          if (termsEnum.seekExact(term)) {
-            if (matchingTerms == null) {
-              docs = termsEnum.postings(docs, PostingsEnum.NONE);
-              builder.add(docs);
-            } else if (matchingTerms.size() < threshold) {
-              matchingTerms.add(new TermAndState(field, termsEnum));
-            } else {
-              assert matchingTerms.size() == threshold;
-              builder = new DocIdSetBuilder(reader.maxDoc(), terms);
-              docs = termsEnum.postings(docs, PostingsEnum.NONE);
-              builder.add(docs);
-              for (TermAndState t : matchingTerms) {
-                t.termsEnum.seekExact(t.term, t.state);
-                docs = t.termsEnum.postings(docs, PostingsEnum.NONE);
+          List<TermAndState> matchingTerms = new ArrayList<>(threshold);
+          DocIdSetBuilder builder = null;
+
+          for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
+            assert field.equals(iterator.field());
+            if (termsEnum.seekExact(term)) {
+              if (matchingTerms == null) {
+                docs = termsEnum.postings(docs, PostingsEnum.NONE);
                 builder.add(docs);
+              } else if (matchingTerms.size() < threshold) {
+                matchingTerms.add(new TermAndState(field, termsEnum));
+              } else {
+                assert matchingTerms.size() == threshold;
+                builder = new DocIdSetBuilder(reader.maxDoc(), terms);
+                docs = termsEnum.postings(docs, PostingsEnum.NONE);
+                builder.add(docs);
+                for (TermAndState t : matchingTerms) {
+                  t.termsEnum.seekExact(t.term, t.state);
+                  docs = t.termsEnum.postings(docs, PostingsEnum.NONE);
+                  builder.add(docs);
+                }
+                matchingTerms = null;
               }
-              matchingTerms = null;
             }
           }
-        }
-        if (matchingTerms != null) {
-          assert builder == null;
-          BooleanQuery.Builder bq = new BooleanQuery.Builder();
-          for (TermAndState t : matchingTerms) {
-            final TermStates termStates = new TermStates(searcher.getTopReaderContext());
-            termStates.register(t.state, context.ord, t.docFreq, t.totalTermFreq);
-            bq.add(new TermQuery(new Term(t.field, t.term), termStates), Occur.SHOULD);
+          if (matchingTerms != null) {
+            assert builder == null;
+            BooleanQuery.Builder bq = new BooleanQuery.Builder();
+            for (TermAndState t : matchingTerms) {
+              final TermStates termStates = new TermStates(searcher.getTopReaderContext());
+              termStates.register(t.state, context.ord, t.docFreq, t.totalTermFreq);
+              bq.add(new TermQuery(new Term(t.field, t.term), termStates), Occur.SHOULD);
+            }
+            Query q = new ConstantScoreQuery(bq.build());
+            final Weight weight = searcher.rewrite(q).createWeight(searcher, scoreMode, score());
+            return new WeightOrDocIdSet(weight);
+          } else {
+            assert builder != null;
+            return new WeightOrDocIdSet(builder.build());
           }
-          Query q = new ConstantScoreQuery(bq.build());
-          final Weight weight = searcher.rewrite(q).createWeight(searcher, scoreMode, score());
-          return new WeightOrDocIdSet(weight);
         } else {
-          assert builder != null;
-          return new WeightOrDocIdSet(builder.build());
+          if (collectedTerms.isEmpty()) {
+            return null;
+          }
+          if (collectedTerms.size() <= threshold) {
+            BooleanQuery.Builder bq = new BooleanQuery.Builder();
+            for (TermAndState t : collectedTerms) {
+              final TermStates termStates = new TermStates(searcher.getTopReaderContext());
+              termStates.register(t.state, context.ord, t.docFreq, t.totalTermFreq);
+              bq.add(new TermQuery(new Term(t.field, t.term), termStates), Occur.SHOULD);
+            }
+            Query q = new ConstantScoreQuery(bq.build());
+            final Weight weight = searcher.rewrite(q).createWeight(searcher, scoreMode, score());
+            return new WeightOrDocIdSet(weight);
+          } else {
+            DocIdSetBuilder builder = new DocIdSetBuilder(reader.maxDoc(), terms);
+            PostingsEnum docs = null;
+            for (TermAndState t : collectedTerms) {
+              t.termsEnum.seekExact(t.term, t.state);
+              docs = t.termsEnum.postings(docs, PostingsEnum.NONE);
+              builder.add(docs);
+            }
+            return new WeightOrDocIdSet(builder.build());
+          }
         }
       }
 
@@ -330,7 +380,7 @@ public class TermInSetQuery extends Query implements Accountable {
 
       @Override
       public BulkScorer bulkScorer(LeafReaderContext context) throws IOException {
-        final WeightOrDocIdSet weightOrBitSet = rewrite(context);
+        final WeightOrDocIdSet weightOrBitSet = rewrite(context, null);
         if (weightOrBitSet == null) {
           return null;
         } else if (weightOrBitSet.weight != null) {
@@ -345,15 +395,42 @@ public class TermInSetQuery extends Query implements Accountable {
       }
 
       @Override
+      public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
+        final List<TermAndState> collectedTerms = collectTerms(context);
+        final long cost = collectedTerms.stream().mapToLong(e -> e.docFreq).sum();
+        final Weight weight = this;
+        return new ScorerSupplier() {
+          @Override
+          public Scorer get(long leadCost) throws IOException {
+            WeightOrDocIdSet weightOrDocIdSet = rewrite(context, collectedTerms);
+            if (weightOrDocIdSet == null) {
+              return null;
+            }
+
+            final Scorer scorer;
+            if (weightOrDocIdSet.weight != null) {
+              scorer = weightOrDocIdSet.weight.scorer(context);
+            } else {
+              scorer = scorer(weightOrDocIdSet.set);
+            }
+
+            return Objects.requireNonNullElseGet(
+                scorer,
+                () ->
+                    new ConstantScoreScorer(weight, score(), scoreMode, DocIdSetIterator.empty()));
+          }
+
+          @Override
+          public long cost() {
+            return cost;
+          }
+        };
+      }
+
+      @Override
       public Scorer scorer(LeafReaderContext context) throws IOException {
-        final WeightOrDocIdSet weightOrBitSet = rewrite(context);
-        if (weightOrBitSet == null) {
-          return null;
-        } else if (weightOrBitSet.weight != null) {
-          return weightOrBitSet.weight.scorer(context);
-        } else {
-          return scorer(weightOrBitSet.set);
-        }
+        final ScorerSupplier supplier = scorerSupplier(context);
+        return supplier.get(Long.MAX_VALUE);
       }
 
       @Override

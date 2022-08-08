@@ -28,8 +28,6 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.PostingsEnum;
-import org.apache.lucene.index.PrefixCodedTerms;
-import org.apache.lucene.index.PrefixCodedTerms.TermIterator;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.TermState;
 import org.apache.lucene.index.TermStates;
@@ -39,7 +37,7 @@ import org.apache.lucene.search.BooleanClause.Occur;
 import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.BytesRefBuilder;
+import org.apache.lucene.util.BytesRefIterator;
 import org.apache.lucene.util.DocIdSetBuilder;
 import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.automaton.Automata;
@@ -79,11 +77,11 @@ public class TermInSetQuery extends Query implements Accountable {
   static final int BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD = 16;
 
   private final String field;
-  private final PrefixCodedTerms termData;
-  private final int termDataHashCode; // cached hashcode of termData
+  private final BytesRef[] termData;
 
   /** Creates a new {@link TermInSetQuery} from the given collection of terms. */
   public TermInSetQuery(String field, Collection<BytesRef> terms) {
+    List<BytesRef> termList = new ArrayList<>(terms.size());
     BytesRef[] sortedTerms = terms.toArray(new BytesRef[0]);
     // already sorted if we are a SortedSet with natural order
     boolean sorted =
@@ -91,20 +89,16 @@ public class TermInSetQuery extends Query implements Accountable {
     if (!sorted) {
       ArrayUtil.timSort(sortedTerms);
     }
-    PrefixCodedTerms.Builder builder = new PrefixCodedTerms.Builder();
-    BytesRefBuilder previous = null;
+    BytesRef previous = null;
     for (BytesRef term : sortedTerms) {
-      if (previous == null) {
-        previous = new BytesRefBuilder();
-      } else if (previous.get().equals(term)) {
+      if (term.equals(previous)) {
         continue; // deduplicate
       }
-      builder.add(field, term);
-      previous.copyBytes(term);
+      termList.add(term);
+      previous = term;
     }
+    this.termData = termList.toArray(new BytesRef[0]);
     this.field = field;
-    termData = builder.finish();
-    termDataHashCode = termData.hashCode();
   }
 
   /** Creates a new {@link TermInSetQuery} from the given array of terms. */
@@ -116,11 +110,10 @@ public class TermInSetQuery extends Query implements Accountable {
   public Query rewrite(IndexReader reader) throws IOException {
     final int threshold =
         Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
-    if (termData.size() <= threshold) {
+    if (termData.length <= threshold) {
       BooleanQuery.Builder bq = new BooleanQuery.Builder();
-      TermIterator iterator = termData.iterator();
-      for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
-        bq.add(new TermQuery(new Term(iterator.field(), BytesRef.deepCopyOf(term))), Occur.SHOULD);
+      for (BytesRef term : termData) {
+        bq.add(new TermQuery(new Term(field, term)), Occur.SHOULD);
       }
       return new ConstantScoreQuery(bq.build());
     }
@@ -132,19 +125,18 @@ public class TermInSetQuery extends Query implements Accountable {
     if (visitor.acceptField(field) == false) {
       return;
     }
-    if (termData.size() == 1) {
-      visitor.consumeTerms(this, new Term(field, termData.iterator().next()));
+    if (termData.length == 1) {
+      visitor.consumeTerms(this, new Term(field, termData[0]));
     }
-    if (termData.size() > 1) {
+    if (termData.length > 1) {
       visitor.consumeTermsMatching(this, field, this::asByteRunAutomaton);
     }
   }
 
   // TODO: this is extremely slow. we should not be doing this.
   private ByteRunAutomaton asByteRunAutomaton() {
-    TermIterator iterator = termData.iterator();
     List<Automaton> automata = new ArrayList<>();
-    for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
+    for (BytesRef term : termData) {
       automata.add(Automata.makeBinary(term));
     }
     Automaton automaton =
@@ -159,19 +151,12 @@ public class TermInSetQuery extends Query implements Accountable {
   }
 
   private boolean equalsTo(TermInSetQuery other) {
-    // no need to check 'field' explicitly since it is encoded in 'termData'
-    // termData might be heavy to compare so check the hash code first
-    return termDataHashCode == other.termDataHashCode && termData.equals(other.termData);
+    return Objects.equals(field, other.field) && Arrays.equals(termData, other.termData);
   }
 
   @Override
   public int hashCode() {
-    return 31 * classHash() + termDataHashCode;
-  }
-
-  /** Returns the terms wrapped in a PrefixCodedTerms. */
-  public PrefixCodedTerms getTermData() {
-    return termData;
+    return 31 * classHash() + Objects.hash(field) + Arrays.hashCode(termData);
   }
 
   @Override
@@ -180,9 +165,8 @@ public class TermInSetQuery extends Query implements Accountable {
     builder.append(field);
     builder.append(":(");
 
-    TermIterator iterator = termData.iterator();
     boolean first = true;
-    for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
+    for (BytesRef term : termData) {
       if (!first) {
         builder.append(' ');
       }
@@ -196,7 +180,7 @@ public class TermInSetQuery extends Query implements Accountable {
 
   @Override
   public long ramBytesUsed() {
-    return BASE_RAM_BYTES_USED + termData.ramBytesUsed();
+    return BASE_RAM_BYTES_USED + Arrays.stream(termData).mapToLong(e -> e.bytes.length).sum();
   }
 
   @Override
@@ -248,11 +232,27 @@ public class TermInSetQuery extends Query implements Accountable {
         if (terms.hasPositions() == false) {
           return super.matches(context, doc);
         }
+
+        BytesRefIterator iterator =
+            new BytesRefIterator() {
+              int pos = -1;
+
+              @Override
+              public BytesRef next() {
+                pos++;
+                if (pos < termData.length) {
+                  return termData[pos];
+                } else {
+                  return null;
+                }
+              }
+            };
+
         return MatchesUtils.forField(
             field,
             () ->
                 DisjunctionMatchesIterator.fromTermsEnum(
-                    context, doc, getQuery(), field, termData.iterator()));
+                    context, doc, getQuery(), field, iterator));
       }
 
       private List<TermAndState> collectTerms(LeafReaderContext context) throws IOException {
@@ -265,10 +265,7 @@ public class TermInSetQuery extends Query implements Accountable {
           return collected;
         }
         TermsEnum termsEnum = terms.iterator();
-        TermIterator iterator = termData.iterator();
-
-        for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
-          assert field.equals(iterator.field());
+        for (BytesRef term : termData) {
           if (termsEnum.seekExact(term)) {
             collected.add(new TermAndState(field, termsEnum));
           }
@@ -281,14 +278,15 @@ public class TermInSetQuery extends Query implements Accountable {
        * On the given leaf context, try to either rewrite to a disjunction if there are few matching
        * terms, or build a bitset containing matching docs.
        */
-      private WeightOrDocIdSet rewrite(LeafReaderContext context, List<TermAndState> collectedTerms) throws IOException {
+      private WeightOrDocIdSet rewrite(LeafReaderContext context, List<TermAndState> collectedTerms)
+          throws IOException {
         final LeafReader reader = context.reader();
 
         // We will first try to collect up to 'threshold' terms into 'matchingTerms'
         // if there are too many terms, we will fall back to building the 'builder'
         final int threshold =
-          Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
-        assert termData.size() > threshold : "Query should have been rewritten";
+            Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
+        assert termData.length > threshold : "Query should have been rewritten";
 
         Terms terms = reader.terms(field);
         if (terms == null) {
@@ -298,13 +296,11 @@ public class TermInSetQuery extends Query implements Accountable {
         if (collectedTerms == null) {
           TermsEnum termsEnum = terms.iterator();
           PostingsEnum docs = null;
-          TermIterator iterator = termData.iterator();
 
           List<TermAndState> matchingTerms = new ArrayList<>(threshold);
           DocIdSetBuilder builder = null;
 
-          for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
-            assert field.equals(iterator.field());
+          for (BytesRef term : termData) {
             if (termsEnum.seekExact(term)) {
               if (matchingTerms == null) {
                 docs = termsEnum.postings(docs, PostingsEnum.NONE);
@@ -325,6 +321,7 @@ public class TermInSetQuery extends Query implements Accountable {
               }
             }
           }
+
           if (matchingTerms != null) {
             assert builder == null;
             BooleanQuery.Builder bq = new BooleanQuery.Builder();

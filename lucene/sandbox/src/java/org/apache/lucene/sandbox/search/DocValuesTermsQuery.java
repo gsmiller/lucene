@@ -21,6 +21,8 @@ import java.util.AbstractList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Objects;
+import org.apache.lucene.document.SortedDocValuesField;
+import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
@@ -79,8 +81,11 @@ import org.apache.lucene.util.RamUsageEstimator;
  *
  * <p>Which query is best is very application dependent.
  *
+ * @deprecated See {@link SortedDocValuesField#newSlowTermInSetQuery(String, Collection)} and {@link
+ *     SortedSetDocValuesField#newSlowTermInSetQuery(String, Collection)} for replacement.
  * @lucene.experimental
  */
+@Deprecated
 public class DocValuesTermsQuery extends Query implements Accountable {
   private static final long BASE_RAM_BYTES =
       RamUsageEstimator.shallowSizeOfInstance(DocValuesTermsQuery.class);

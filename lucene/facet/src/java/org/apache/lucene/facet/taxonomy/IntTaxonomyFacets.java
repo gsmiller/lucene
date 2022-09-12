@@ -31,6 +31,7 @@ import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.FacetsConfig.DimConfig;
 import org.apache.lucene.facet.LabelAndValue;
 import org.apache.lucene.facet.TopOrdAndIntQueue;
+import org.apache.lucene.facet.TopOrdAndIntQueue.OrdAndValue;
 import org.apache.lucene.util.PriorityQueue;
 
 /** Base class for all taxonomy-based facets that aggregate to a per-ords int[]. */
@@ -249,12 +250,11 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
    */
   private TopChildrenForPath getTopChildrenForPath(DimConfig dimConfig, int pathOrd, int topN)
       throws IOException {
-    TopOrdAndIntQueue q = new TopOrdAndIntQueue(Math.min(taxoReader.getSize(), topN));
-    int bottomValue = 0;
+    TopOrdAndIntQueue q = new TopOrdAndIntQueue(Math.min(taxoReader.getSize(), topN), () -> new OrdAndValue(Integer.MAX_VALUE, 0));
 
     int aggregatedValue = 0;
     int childCount = 0;
-    TopOrdAndIntQueue.OrdAndValue reuse = null;
+    TopOrdAndIntQueue.OrdAndValue reuse = q.top();
 
     // TODO: would be faster if we had a "get the following children" API?  then we
     // can make a single pass over the hashmap
@@ -265,16 +265,10 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
         if (parents[ord] == pathOrd && value > 0) {
           aggregatedValue = aggregationFunction.aggregate(aggregatedValue, value);
           childCount++;
-          if (value > bottomValue) {
-            if (reuse == null) {
-              reuse = new TopOrdAndIntQueue.OrdAndValue();
-            }
+          if (value > reuse.value || (value == reuse.value && ord < reuse.ord)) {
             reuse.ord = ord;
             reuse.value = value;
-            reuse = q.insertWithOverflow(reuse);
-            if (q.size() == topN) {
-              bottomValue = q.top().value;
-            }
+            reuse = q.updateTop();
           }
         }
       }
@@ -287,16 +281,10 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
         if (value > 0) {
           aggregatedValue = aggregationFunction.aggregate(aggregatedValue, value);
           childCount++;
-          if (value > bottomValue) {
-            if (reuse == null) {
-              reuse = new TopOrdAndIntQueue.OrdAndValue();
-            }
+          if (value > reuse.value || (value == reuse.value && ord < reuse.ord)) {
             reuse.ord = ord;
             reuse.value = value;
-            reuse = q.insertWithOverflow(reuse);
-            if (q.size() == topN) {
-              bottomValue = q.top().value;
-            }
+            reuse = q.updateTop();
           }
         }
         ord = siblings[ord];
@@ -430,9 +418,13 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
     TopOrdAndIntQueue q = topChildrenForPath.childQueue;
     assert q != null;
 
-    LabelAndValue[] labelValues = new LabelAndValue[q.size()];
+    LabelAndValue[] labelValues = new LabelAndValue[topChildrenForPath.childCount];
     int[] ordinals = new int[labelValues.length];
     int[] values = new int[labelValues.length];
+
+    while (topChildrenForPath.childCount < q.size()) {
+      q.pop();
+    }
 
     for (int i = labelValues.length - 1; i >= 0; i--) {
       TopOrdAndIntQueue.OrdAndValue ordAndValue = q.pop();

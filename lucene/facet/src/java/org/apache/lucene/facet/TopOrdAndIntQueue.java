@@ -18,6 +18,8 @@ package org.apache.lucene.facet;
 
 import org.apache.lucene.util.PriorityQueue;
 
+import java.util.function.Supplier;
+
 /** Keeps highest results, first by largest int value, then tie break by smallest ord. */
 public class TopOrdAndIntQueue extends PriorityQueue<TopOrdAndIntQueue.OrdAndValue> {
 
@@ -32,11 +34,20 @@ public class TopOrdAndIntQueue extends PriorityQueue<TopOrdAndIntQueue.OrdAndVal
 
     /** Default constructor. */
     public OrdAndValue() {}
+
+    public OrdAndValue(int ord, int value) {
+      this.ord = ord;
+      this.value = value;
+    }
   }
 
   /** Sole constructor. */
   public TopOrdAndIntQueue(int topN) {
     super(topN);
+  }
+
+  public TopOrdAndIntQueue(int topN, Supplier<OrdAndValue> sentinelObjectSupplier) {
+    super(topN, sentinelObjectSupplier);
   }
 
   @Override

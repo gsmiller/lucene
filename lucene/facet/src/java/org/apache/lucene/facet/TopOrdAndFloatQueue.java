@@ -32,6 +32,11 @@ public class TopOrdAndFloatQueue extends PriorityQueue<TopOrdAndFloatQueue.OrdAn
 
     /** Default constructor. */
     public OrdAndValue() {}
+
+    public OrdAndValue(int ord, float value) {
+      this.ord = ord;
+      this.value = value;
+    }
   }
 
   /** Sole constructor. */

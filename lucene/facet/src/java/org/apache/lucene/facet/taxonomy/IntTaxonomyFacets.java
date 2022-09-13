@@ -418,7 +418,7 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
     TopOrdAndIntQueue q = topChildrenForPath.childQueue;
     assert q != null;
 
-    LabelAndValue[] labelValues = new LabelAndValue[topChildrenForPath.childCount];
+    LabelAndValue[] labelValues = new LabelAndValue[Math.min(q.size(), topChildrenForPath.childCount)];
     int[] ordinals = new int[labelValues.length];
     int[] values = new int[labelValues.length];
 

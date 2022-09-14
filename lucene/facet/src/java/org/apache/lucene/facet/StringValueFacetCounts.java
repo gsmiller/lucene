@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-
 import org.apache.lucene.facet.TopOrdAndIntQueue.OrdAndValue;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.IndexReader;
@@ -176,7 +175,9 @@ public class StringValueFacetCounts extends Facets {
       childCount = sparseCounts.size();
       if (childCount > 0) {
         // Lazy init for sparse case:
-        q = new TopOrdAndIntQueue(Math.min(topN, childCount), () -> new OrdAndValue(Integer.MAX_VALUE, 0));
+        q =
+            new TopOrdAndIntQueue(
+                Math.min(topN, childCount), () -> new OrdAndValue(Integer.MAX_VALUE, 0));
         reuse = q.top();
         for (IntIntCursor cursor : sparseCounts) {
           int ord = cursor.key;
@@ -196,7 +197,9 @@ public class StringValueFacetCounts extends Facets {
           childCount++;
           if (q == null) {
             // Lazy init for sparse case:
-            q = new TopOrdAndIntQueue(Math.min(topN, cardinality), () -> new OrdAndValue(Integer.MAX_VALUE, 0));
+            q =
+                new TopOrdAndIntQueue(
+                    Math.min(topN, cardinality), () -> new OrdAndValue(Integer.MAX_VALUE, 0));
             reuse = q.top();
           }
           // Don't need to worry about tie breaking here since we visit ordinals in ascending order:

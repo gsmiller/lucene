@@ -250,7 +250,9 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
    */
   private TopChildrenForPath getTopChildrenForPath(DimConfig dimConfig, int pathOrd, int topN)
       throws IOException {
-    TopOrdAndIntQueue q = new TopOrdAndIntQueue(Math.min(taxoReader.getSize(), topN), () -> new OrdAndValue(Integer.MAX_VALUE, 0));
+    TopOrdAndIntQueue q =
+        new TopOrdAndIntQueue(
+            Math.min(taxoReader.getSize(), topN), () -> new OrdAndValue(Integer.MAX_VALUE, 0));
 
     int aggregatedValue = 0;
     int childCount = 0;
@@ -425,7 +427,8 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
     TopOrdAndIntQueue q = topChildrenForPath.childQueue;
     assert q != null;
 
-    LabelAndValue[] labelValues = new LabelAndValue[Math.min(q.size(), topChildrenForPath.childCount)];
+    LabelAndValue[] labelValues =
+        new LabelAndValue[Math.min(q.size(), topChildrenForPath.childCount)];
     int[] ordinals = new int[labelValues.length];
     int[] values = new int[labelValues.length];
 

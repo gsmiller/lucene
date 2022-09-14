@@ -386,7 +386,7 @@ public class LongValueFacetCounts extends Facets {
 
     Entry() {}
 
-    Entry (long value, int count) {
+    Entry(long value, int count) {
       this.value = value;
       this.count = count;
     }
@@ -395,7 +395,8 @@ public class LongValueFacetCounts extends Facets {
   /** Returns the specified top number of facets, sorted by count. */
   public FacetResult getTopChildrenSortByCount(int topN) {
     PriorityQueue<Entry> pq =
-        new PriorityQueue<>(Math.min(topN, counts.length + hashCounts.size()), () -> new Entry(Long.MAX_VALUE, 0)) {
+        new PriorityQueue<>(
+            Math.min(topN, counts.length + hashCounts.size()), () -> new Entry(Long.MAX_VALUE, 0)) {
           @Override
           protected boolean lessThan(Entry a, Entry b) {
             // sort by count descending, breaking ties by value ascending:

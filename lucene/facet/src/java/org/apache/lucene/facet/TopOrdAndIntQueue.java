@@ -16,9 +16,8 @@
  */
 package org.apache.lucene.facet;
 
-import org.apache.lucene.util.PriorityQueue;
-
 import java.util.function.Supplier;
+import org.apache.lucene.util.PriorityQueue;
 
 /** Keeps highest results, first by largest int value, then tie break by smallest ord. */
 public class TopOrdAndIntQueue extends PriorityQueue<TopOrdAndIntQueue.OrdAndValue> {

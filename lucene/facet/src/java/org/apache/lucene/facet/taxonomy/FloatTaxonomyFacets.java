@@ -178,7 +178,9 @@ abstract class FloatTaxonomyFacets extends TaxonomyFacets {
   private TopChildrenForPath getTopChildrenForPath(DimConfig dimConfig, int pathOrd, int topN)
       throws IOException {
 
-    TopOrdAndFloatQueue q = new TopOrdAndFloatQueue(Math.min(taxoReader.getSize(), topN), () -> new OrdAndValue(Integer.MAX_VALUE, 0f));
+    TopOrdAndFloatQueue q =
+        new TopOrdAndFloatQueue(
+            Math.min(taxoReader.getSize(), topN), () -> new OrdAndValue(Integer.MAX_VALUE, 0f));
 
     int[] children = getChildren();
     int[] siblings = getSiblings();

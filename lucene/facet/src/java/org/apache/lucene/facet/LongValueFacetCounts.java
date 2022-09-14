@@ -383,12 +383,19 @@ public class LongValueFacetCounts extends Facets {
   private static class Entry {
     int count;
     long value;
+
+    Entry() {}
+
+    Entry (long value, int count) {
+      this.value = value;
+      this.count = count;
+    }
   }
 
   /** Returns the specified top number of facets, sorted by count. */
   public FacetResult getTopChildrenSortByCount(int topN) {
     PriorityQueue<Entry> pq =
-        new PriorityQueue<>(Math.min(topN, counts.length + hashCounts.size())) {
+        new PriorityQueue<>(Math.min(topN, counts.length + hashCounts.size()), () -> new Entry(Long.MAX_VALUE, 0)) {
           @Override
           protected boolean lessThan(Entry a, Entry b) {
             // sort by count descending, breaking ties by value ascending:
@@ -397,32 +404,39 @@ public class LongValueFacetCounts extends Facets {
         };
 
     int childCount = 0;
-    Entry e = null;
+    Entry reuse = pq.top();
     for (int i = 0; i < counts.length; i++) {
-      if (counts[i] != 0) {
+      int count = counts[i];
+      if (count != 0) {
         childCount++;
-        if (e == null) {
-          e = new Entry();
+        // We don't need to break ties for equivalent counts here since we visit long values
+        // in ascending order:
+        if (count > reuse.count) {
+          reuse.value = i;
+          reuse.count = count;
+          reuse = pq.updateTop();
         }
-        e.value = i;
-        e.count = counts[i];
-        e = pq.insertWithOverflow(e);
       }
     }
 
     if (hashCounts.size() != 0) {
       childCount += hashCounts.size();
       for (LongIntCursor c : hashCounts) {
+        long value = c.key;
         int count = c.value;
-        if (count != 0) {
-          if (e == null) {
-            e = new Entry();
-          }
-          e.value = c.key;
-          e.count = count;
-          e = pq.insertWithOverflow(e);
+        // We don't need to check for non-zero count here since all hashmap entires are non-zero
+        assert count > 0;
+        if (count > reuse.count || (count == reuse.count && value < reuse.value)) {
+          reuse.value = value;
+          reuse.count = count;
+          reuse = pq.updateTop();
         }
       }
+    }
+
+    // If we had some entires with counts of zero, we will need to pop of some sentinel values:
+    while (childCount < pq.size()) {
+      pq.pop();
     }
 
     LabelAndValue[] results = new LabelAndValue[pq.size()];

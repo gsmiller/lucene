@@ -30,6 +30,7 @@ import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.FacetsConfig.DimConfig;
 import org.apache.lucene.facet.LabelAndValue;
 import org.apache.lucene.facet.TopOrdAndIntQueue;
+import org.apache.lucene.facet.TopOrdAndIntQueue.OrdAndValue;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesReaderState.DimTree;
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesReaderState.OrdRange;
 import org.apache.lucene.index.SortedSetDocValues;
@@ -302,33 +303,34 @@ abstract class AbstractSortedSetDocValueFacetCounts extends Facets {
   private TopChildrenForPath computeTopChildren(
       PrimitiveIterator.OfInt childOrds, int topN, DimConfig dimConfig, int pathOrd) {
     TopOrdAndIntQueue q = null;
-    int bottomCount = 0;
     int pathCount = 0;
     int childCount = 0;
 
-    TopOrdAndIntQueue.OrdAndValue reuse = null;
+    OrdAndValue reuse = null;
     while (childOrds.hasNext()) {
       int ord = childOrds.next();
       int count = getCount(ord);
       if (count > 0) {
         pathCount += count;
         childCount++;
-        if (count > bottomCount) {
-          if (reuse == null) {
-            reuse = new TopOrdAndIntQueue.OrdAndValue();
-          }
+        if (q == null) {
+          // Lazy init, so we don't create this for the
+          // sparse case unnecessarily
+          q = new TopOrdAndIntQueue(topN, () -> new OrdAndValue(Integer.MAX_VALUE, 0));
+          reuse = q.top();
+        }
+        if (count > reuse.value || (count == reuse.value && ord < reuse.ord)) {
           reuse.ord = ord;
           reuse.value = count;
-          if (q == null) {
-            // Lazy init, so we don't create this for the
-            // sparse case unnecessarily
-            q = new TopOrdAndIntQueue(topN);
-          }
-          reuse = q.insertWithOverflow(reuse);
-          if (q.size() == topN) {
-            bottomCount = q.top().value;
-          }
+          reuse = q.updateTop();
         }
+      }
+    }
+
+    // If we had some entires with counts of zero, we will need to pop of some sentinel values:
+    if (q != null) {
+      while (childCount < q.size()) {
+        q.pop();
       }
     }
 

@@ -196,7 +196,7 @@ abstract class RangeFacetCounts extends FacetCountsWithFilterQuery {
     validateDimAndPathForGetChildren(dim, path);
 
     PriorityQueue<Entry> pq =
-        new PriorityQueue<>(Math.min(topN, counts.length)) {
+        new PriorityQueue<>(Math.min(topN, counts.length), () -> new Entry("", 0)) {
           @Override
           protected boolean lessThan(Entry a, Entry b) {
             int cmp = Integer.compare(a.count, b.count);
@@ -208,17 +208,23 @@ abstract class RangeFacetCounts extends FacetCountsWithFilterQuery {
         };
 
     int childCount = 0;
-    Entry e = null;
+    Entry reuse = pq.top();
     for (int i = 0; i < counts.length; i++) {
-      if (counts[i] != 0) {
+      String label = ranges[i].label;
+      int count = counts[i];
+      if (count != 0) {
         childCount++;
-        if (e == null) {
-          e = new Entry();
+        if (count > reuse.count || (count == reuse.count && label.compareTo(reuse.label) < 0)) {
+          reuse.label = label;
+          reuse.count = count;
+          reuse = pq.updateTop();
         }
-        e.label = ranges[i].label;
-        e.count = counts[i];
-        e = pq.insertWithOverflow(e);
       }
+    }
+
+    // If we had some entires with counts of zero, we will need to pop of some sentinel values:
+    while (childCount < pq.size()) {
+      pq.pop();
     }
 
     LabelAndValue[] results = new LabelAndValue[pq.size()];
@@ -271,5 +277,12 @@ abstract class RangeFacetCounts extends FacetCountsWithFilterQuery {
   private static final class Entry {
     int count;
     String label;
+
+    Entry() {}
+
+    Entry(String label, int count) {
+      this.label = label;
+      this.count = count;
+    }
   }
 }

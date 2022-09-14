@@ -203,6 +203,11 @@ abstract class FloatTaxonomyFacets extends TaxonomyFacets {
       ord = siblings[ord];
     }
 
+    // If we had some entires with counts of zero, we will need to pop of some sentinel values:
+    while (childCount < q.size()) {
+      q.pop();
+    }
+
     if (dimConfig.multiValued) {
       if (dimConfig.requireDimCount) {
         aggregatedValue = values[pathOrd];

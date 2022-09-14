@@ -23,6 +23,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+
+import org.apache.lucene.facet.TopOrdAndIntQueue.OrdAndValue;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
@@ -166,29 +168,24 @@ public class StringValueFacetCounts extends Facets {
     validateTopN(topN);
     validateDimAndPathForGetChildren(dim, path);
 
-    topN = Math.min(topN, cardinality);
     TopOrdAndIntQueue q = null;
-    TopOrdAndIntQueue.OrdAndValue reuse = null;
-    int bottomCount = 0;
+    OrdAndValue reuse = null;
     int childCount = 0; // total number of labels with non-zero count
 
     if (sparseCounts != null) {
-      for (IntIntCursor cursor : sparseCounts) {
-        childCount++; // every count in sparseValues should be non-zero
-        int count = cursor.value;
-        if (count > bottomCount) {
-          if (reuse == null) {
-            reuse = new TopOrdAndIntQueue.OrdAndValue();
-          }
-          reuse.ord = cursor.key;
-          reuse.value = count;
-          if (q == null) {
-            // Lazy init for sparse case:
-            q = new TopOrdAndIntQueue(topN);
-          }
-          reuse = q.insertWithOverflow(reuse);
-          if (q.size() == topN) {
-            bottomCount = q.top().value;
+      childCount = sparseCounts.size();
+      if (childCount > 0) {
+        // Lazy init for sparse case:
+        q = new TopOrdAndIntQueue(Math.min(topN, childCount), () -> new OrdAndValue(Integer.MAX_VALUE, 0));
+        reuse = q.top();
+        for (IntIntCursor cursor : sparseCounts) {
+          int ord = cursor.key;
+          int count = cursor.value;
+          // Hashmap entries will always be non-zero, so we don't need to check for that condition
+          if (count > reuse.value || (count == reuse.value && ord < reuse.ord)) {
+            reuse.ord = ord;
+            reuse.value = count;
+            reuse = q.updateTop();
           }
         }
       }
@@ -197,21 +194,24 @@ public class StringValueFacetCounts extends Facets {
         int count = denseCounts[i];
         if (count != 0) {
           childCount++;
-          if (count > bottomCount) {
-            if (reuse == null) {
-              reuse = new TopOrdAndIntQueue.OrdAndValue();
-            }
+          if (q == null) {
+            // Lazy init for sparse case:
+            q = new TopOrdAndIntQueue(Math.min(topN, cardinality), () -> new OrdAndValue(Integer.MAX_VALUE, 0));
+            reuse = q.top();
+          }
+          // Don't need to worry about tie breaking here since we visit ordinals in ascending order:
+          if (count > reuse.value) {
             reuse.ord = i;
             reuse.value = count;
-            if (q == null) {
-              // Lazy init for sparse case:
-              q = new TopOrdAndIntQueue(topN);
-            }
-            reuse = q.insertWithOverflow(reuse);
-            if (q.size() == topN) {
-              bottomCount = q.top().value;
-            }
+            reuse = q.updateTop();
           }
+        }
+      }
+
+      // If we had some entires with counts of zero, we will need to pop of some sentinel values:
+      if (q != null) {
+        while (childCount < q.size()) {
+          q.pop();
         }
       }
     }

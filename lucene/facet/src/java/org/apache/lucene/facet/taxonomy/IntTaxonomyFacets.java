@@ -262,7 +262,9 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
       for (IntIntCursor c : sparseValues) {
         int value = c.value;
         int ord = c.key;
-        if (parents[ord] == pathOrd && value > 0) {
+        if (parents[ord] == pathOrd) {
+          // We don't need to check for zero values here since everything in the hashmap should
+          // be non-zero
           aggregatedValue = aggregationFunction.aggregate(aggregatedValue, value);
           childCount++;
           if (value > reuse.value || (value == reuse.value && ord < reuse.ord)) {
@@ -289,6 +291,11 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
         }
         ord = siblings[ord];
       }
+    }
+
+    // If we had some entires with counts of zero, we will need to pop of some sentinel values:
+    while (childCount < q.size()) {
+      q.pop();
     }
 
     if (dimConfig.multiValued) {

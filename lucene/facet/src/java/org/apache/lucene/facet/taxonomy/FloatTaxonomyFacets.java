@@ -28,6 +28,7 @@ import org.apache.lucene.facet.FacetsConfig;
 import org.apache.lucene.facet.FacetsConfig.DimConfig;
 import org.apache.lucene.facet.LabelAndValue;
 import org.apache.lucene.facet.TopOrdAndFloatQueue;
+import org.apache.lucene.facet.TopOrdAndFloatQueue.OrdAndValue;
 import org.apache.lucene.util.PriorityQueue;
 
 /** Base class for all taxonomy-based facets that aggregate to a per-ords float[]. */
@@ -177,8 +178,7 @@ abstract class FloatTaxonomyFacets extends TaxonomyFacets {
   private TopChildrenForPath getTopChildrenForPath(DimConfig dimConfig, int pathOrd, int topN)
       throws IOException {
 
-    TopOrdAndFloatQueue q = new TopOrdAndFloatQueue(Math.min(taxoReader.getSize(), topN));
-    float bottomValue = 0;
+    TopOrdAndFloatQueue q = new TopOrdAndFloatQueue(Math.min(taxoReader.getSize(), topN), () -> new OrdAndValue(Integer.MAX_VALUE, 0f));
 
     int[] children = getChildren();
     int[] siblings = getSiblings();
@@ -186,22 +186,17 @@ abstract class FloatTaxonomyFacets extends TaxonomyFacets {
     int ord = children[pathOrd];
     float aggregatedValue = 0;
     int childCount = 0;
+    OrdAndValue reuse = q.top();
 
-    TopOrdAndFloatQueue.OrdAndValue reuse = null;
     while (ord != TaxonomyReader.INVALID_ORDINAL) {
       if (values[ord] > 0) {
-        aggregatedValue = aggregationFunction.aggregate(aggregatedValue, values[ord]);
+        float value = values[ord];
+        aggregatedValue = aggregationFunction.aggregate(aggregatedValue, value);
         childCount++;
-        if (values[ord] > bottomValue) {
-          if (reuse == null) {
-            reuse = new TopOrdAndFloatQueue.OrdAndValue();
-          }
+        if (value > reuse.value || (value == reuse.value && ord < reuse.ord)) {
           reuse.ord = ord;
-          reuse.value = values[ord];
-          reuse = q.insertWithOverflow(reuse);
-          if (q.size() == topN) {
-            bottomValue = q.top().value;
-          }
+          reuse.value = value;
+          reuse = q.updateTop();
         }
       }
 

@@ -254,7 +254,7 @@ abstract class IntTaxonomyFacets extends TaxonomyFacets {
 
     int aggregatedValue = 0;
     int childCount = 0;
-    TopOrdAndIntQueue.OrdAndValue reuse = q.top();
+    OrdAndValue reuse = q.top();
 
     // TODO: would be faster if we had a "get the following children" API?  then we
     // can make a single pass over the hashmap

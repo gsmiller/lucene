@@ -17,11 +17,14 @@
 package org.apache.lucene.facet;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.search.BulkScorer;
+import org.apache.lucene.search.CollectionTerminatedException;
 import org.apache.lucene.search.Collector;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.LeafCollector;
@@ -156,14 +159,28 @@ class DrillSidewaysScorer extends BulkScorer {
 
     int docID = baseScorer.docID();
 
+    int sidewaysDimCount = dims.length;
+    List<DocIdSetIterator> exhaustedConstraints = null;
+
     nextDoc:
     while (docID != PostingsEnum.NO_MORE_DOCS) {
       if (acceptDocs != null && acceptDocs.get(docID) == false) {
         docID = baseIterator.nextDoc();
         continue;
       }
-      LeafCollector failedCollector = null;
-      for (DocsAndCost dim : dims) {
+      if (exhaustedConstraints != null) {
+        // TODO: Should we keep these sorted by cost?
+        for (DocIdSetIterator it : exhaustedConstraints) {
+          if (it.docID() > docID || (it.docID() < docID && it.advance(docID) > docID)) {
+            docID = baseIterator.advance(it.docID());
+            continue nextDoc;
+          }
+        }
+      }
+
+      int failedDim = -1;
+      for (int i = 0; i < sidewaysDimCount; i++) {
+        DocsAndCost dim = dims[i];
         // TODO: should we sort this 2nd dimension of
         // docsEnums from most frequent to least?
         if (dim.approximation.docID() < docID) {
@@ -180,26 +197,39 @@ class DrillSidewaysScorer extends BulkScorer {
         }
 
         if (matches == false) {
-          if (failedCollector != null) {
+          if (failedDim != -1) {
             // More than one dim fails on this document, so
             // it's neither a hit nor a near-miss; move to
             // next doc:
-            docID = baseIterator.nextDoc();
+            DocsAndCost alreadyFailed = dims[failedDim];
+            int nextCandidate =
+                Math.min(alreadyFailed.approximation.docID(), dim.approximation.docID());
+            docID = baseIterator.advance(nextCandidate);
             continue nextDoc;
           } else {
-            failedCollector = dim.sidewaysLeafCollector;
+            failedDim = i;
           }
         }
       }
 
       collectDocID = docID;
 
-      if (failedCollector == null) {
+      if (failedDim == -1) {
         // Hit passed all filters, so it's "real":
         collectHit(collector, dims);
       } else {
         // Hit missed exactly one filter:
-        collectNearMiss(failedCollector);
+        try {
+          collectNearMiss(dims[failedDim].sidewaysLeafCollector);
+        } catch (CollectionTerminatedException e) {
+          if (exhaustedConstraints == null) {
+            exhaustedConstraints = new ArrayList<>();
+          }
+          DocIdSetIterator iterator = TwoPhaseIterator.asDocIdSetIterator(dims[failedDim].twoPhase);
+          exhaustedConstraints.add(iterator);
+          dims[failedDim] = dims[sidewaysDimCount - 1];
+          sidewaysDimCount--;
+        }
       }
 
       docID = baseIterator.nextDoc();

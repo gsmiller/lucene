@@ -53,6 +53,7 @@ public abstract class IndriDisjunctionScorer extends IndriScorer {
   }
 
   public List<Scorer> getSubMatches() throws IOException {
+    positionSubIterators();
     return subScorersList;
   }
 
@@ -72,6 +73,15 @@ public abstract class IndriDisjunctionScorer extends IndriScorer {
 
   @Override
   public int docID() {
-    return subScorers.top().doc;
+    return approximation.docID();
+  }
+
+  private void positionSubIterators() throws IOException {
+    int doc = approximation.docID();
+    DisiWrapper top = subScorers.top();
+    while (top.doc < doc) {
+      top.doc = top.approximation.advance(doc);
+      top = subScorers.updateTop();
+    }
   }
 }

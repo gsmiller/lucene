@@ -129,6 +129,8 @@ abstract class DisjunctionScorer extends Scorer {
       verifiedMatches = null;
       unverifiedMatches.clear();
 
+      positionSubIterators();
+
       for (DisiWrapper w = subScorers.topList(); w != null; ) {
         DisiWrapper next = w.next;
 
@@ -173,7 +175,7 @@ abstract class DisjunctionScorer extends Scorer {
 
   @Override
   public final int docID() {
-    return subScorers.top().doc;
+    return approximation.docID();
   }
 
   BlockMaxDISI getBlockMaxApprox() {
@@ -181,6 +183,7 @@ abstract class DisjunctionScorer extends Scorer {
   }
 
   DisiWrapper getSubMatches() throws IOException {
+    positionSubIterators();
     if (twoPhase == null) {
       return subScorers.topList();
     } else {
@@ -203,5 +206,14 @@ abstract class DisjunctionScorer extends Scorer {
       children.add(new ChildScorable(scorer.scorer, "SHOULD"));
     }
     return children;
+  }
+
+  private void positionSubIterators() throws IOException {
+    int doc = approximation.docID();
+    DisiWrapper top = subScorers.top();
+    while (top.doc < doc) {
+      top.doc = top.approximation.advance(doc);
+      top = subScorers.updateTop();
+    }
   }
 }

@@ -533,17 +533,7 @@ public final class SynonymQuery extends Query {
       return iterator.docID();
     }
 
-    private void positionSubIterators() throws IOException {
-      int doc = iterator.docID();
-      DisiWrapper top = queue.top();
-      while (top.doc < doc) {
-        top.doc = top.approximation.advance(doc);
-        top = queue.updateTop();
-      }
-    }
-
     float freq() throws IOException {
-      positionSubIterators();
       DisiWrapperFreq w = (DisiWrapperFreq) queue.topList();
       float freq = w.freq();
       for (w = (DisiWrapperFreq) w.next; w != null; w = (DisiWrapperFreq) w.next) {

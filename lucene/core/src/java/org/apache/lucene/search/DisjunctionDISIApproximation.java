@@ -29,8 +29,6 @@ public class DisjunctionDISIApproximation extends DocIdSetIterator {
   final DisiPriorityQueue subIterators;
   final long cost;
 
-  int docID = -1;
-
   public DisjunctionDISIApproximation(DisiPriorityQueue subIterators) {
     this.subIterators = subIterators;
     long cost = 0;
@@ -47,7 +45,7 @@ public class DisjunctionDISIApproximation extends DocIdSetIterator {
 
   @Override
   public int docID() {
-    return docID;
+    return subIterators.top().doc;
   }
 
   @Override
@@ -58,9 +56,8 @@ public class DisjunctionDISIApproximation extends DocIdSetIterator {
       top.doc = top.approximation.nextDoc();
       top = subIterators.updateTop();
     } while (top.doc == doc);
-    docID = top.doc;
 
-    return docID;
+    return top.doc;
   }
 
   @Override
@@ -68,14 +65,9 @@ public class DisjunctionDISIApproximation extends DocIdSetIterator {
     DisiWrapper top = subIterators.top();
     do {
       top.doc = top.approximation.advance(target);
-      if (top.doc == target) {
-        docID = target;
-        return docID;
-      }
       top = subIterators.updateTop();
     } while (top.doc < target);
-    docID = top.doc;
 
-    return docID;
+    return top.doc;
   }
 }

@@ -49,10 +49,10 @@ abstract class DisjunctionScorer extends Scorer {
         scorer.advanceShallow(0);
       }
       this.blockMaxApprox =
-          new BlockMaxDISI(new DisjunctionDISIApproximation(this.subScorers), this);
+          new BlockMaxDISI(new DisjunctionApproximation(this.subScorers), this);
       this.approximation = blockMaxApprox;
     } else {
-      this.approximation = new DisjunctionDISIApproximation(this.subScorers);
+      this.approximation = new DisjunctionApproximation(this.subScorers);
       this.blockMaxApprox = null;
     }
 
@@ -214,6 +214,61 @@ abstract class DisjunctionScorer extends Scorer {
     while (top.doc < doc) {
       top.doc = top.approximation.advance(doc);
       top = subScorers.updateTop();
+    }
+  }
+
+  private static class DisjunctionApproximation extends DocIdSetIterator {
+    final DisiPriorityQueue subIterators;
+    final long cost;
+
+    int docID = -1;
+
+    public DisjunctionApproximation(DisiPriorityQueue subIterators) {
+      this.subIterators = subIterators;
+      long cost = 0;
+      for (DisiWrapper w : subIterators) {
+        cost += w.cost;
+      }
+      this.cost = cost;
+    }
+
+    @Override
+    public long cost() {
+      return cost;
+    }
+
+    @Override
+    public int docID() {
+      return docID;
+    }
+
+    @Override
+    public int nextDoc() throws IOException {
+      DisiWrapper top = subIterators.top();
+      final int doc = top.doc;
+      do {
+        top.doc = top.approximation.nextDoc();
+        top = subIterators.updateTop();
+      } while (top.doc == doc);
+      docID = top.doc;
+
+      return docID;
+    }
+
+    @Override
+    public int advance(int target) throws IOException {
+      DisiWrapper top = subIterators.top();
+      do {
+        top.doc = top.approximation.advance(target);
+        if (top.doc == target) {
+          docID = target;
+          return docID;
+        }
+        top = subIterators.updateTop();
+      } while (top.doc < target);
+      docID = top.doc;
+
+      return docID;
     }
   }
 }

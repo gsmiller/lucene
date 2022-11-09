@@ -477,7 +477,6 @@ public final class CombinedFieldQuery extends Query implements Accountable {
     }
 
     float freq() throws IOException {
-      positionSubIterators();
       DisiWrapper w = queue.topList();
       float freq = ((WeightedDisiWrapper) w).freq();
       for (w = w.next; w != null; w = w.next) {
@@ -502,15 +501,6 @@ public final class CombinedFieldQuery extends Query implements Accountable {
     @Override
     public float getMaxScore(int upTo) throws IOException {
       return Float.POSITIVE_INFINITY;
-    }
-
-    private void positionSubIterators() throws IOException {
-      int doc = iterator.docID();
-      DisiWrapper top = queue.top();
-      while (top.doc < doc) {
-        top.doc = top.approximation.advance(doc);
-        top = queue.updateTop();
-      }
     }
   }
 }

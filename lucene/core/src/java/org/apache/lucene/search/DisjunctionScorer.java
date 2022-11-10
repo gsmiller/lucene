@@ -129,7 +129,7 @@ abstract class DisjunctionScorer extends Scorer {
       verifiedMatches = null;
       unverifiedMatches.clear();
 
-      for (DisiWrapper w = subScorers.topList(approximation.docID()); w != null; ) {
+      for (DisiWrapper w = subScorers.topList(docID()); w != null; ) {
         DisiWrapper next = w.next;
 
         if (w.twoPhaseView == null) {
@@ -182,7 +182,7 @@ abstract class DisjunctionScorer extends Scorer {
 
   DisiWrapper getSubMatches() throws IOException {
     if (twoPhase == null) {
-      return subScorers.topList(approximation.docID());
+      return subScorers.topList(docID());
     } else {
       return twoPhase.getSubMatches();
     }
@@ -241,6 +241,10 @@ abstract class DisjunctionScorer extends Scorer {
     }
 
     private int doNext(int target) throws IOException {
+      if (target == DocIdSetIterator.NO_MORE_DOCS) {
+        docID = DocIdSetIterator.NO_MORE_DOCS;
+        return docID;
+      }
       DisiWrapper top = subIterators.top();
       do {
         top.doc = top.approximation.advance(target);
@@ -258,14 +262,10 @@ abstract class DisjunctionScorer extends Scorer {
 
     @Override
     public int nextDoc() throws IOException {
-      DisiWrapper top = subIterators.top();
-      do {
-        top.doc = top.approximation.advance(docID + 1);
-        top = subIterators.updateTop();
-      } while (top.doc <= docID);
-      docID = top.doc;
-
-      return docID;
+      if (docID == DocIdSetIterator.NO_MORE_DOCS) {
+        return docID;
+      }
+      return doNext(docID + 1);
     }
 
     @Override

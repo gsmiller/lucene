@@ -78,8 +78,8 @@ public final class DisiPriorityQueue implements Iterable<DisiWrapper> {
     while (top.doc < docID) {
       top.doc = top.approximation.advance(docID);
       top = updateTop();
-
     }
+
     return topList();
   }
 

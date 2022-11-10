@@ -129,9 +129,7 @@ abstract class DisjunctionScorer extends Scorer {
       verifiedMatches = null;
       unverifiedMatches.clear();
 
-      positionSubIterators();
-
-      for (DisiWrapper w = subScorers.topList(); w != null; ) {
+      for (DisiWrapper w = subScorers.topList(approximation.docID()); w != null; ) {
         DisiWrapper next = w.next;
 
         if (w.twoPhaseView == null) {
@@ -183,9 +181,8 @@ abstract class DisjunctionScorer extends Scorer {
   }
 
   DisiWrapper getSubMatches() throws IOException {
-    positionSubIterators();
     if (twoPhase == null) {
-      return subScorers.topList();
+      return subScorers.topList(approximation.docID());
     } else {
       return twoPhase.getSubMatches();
     }
@@ -208,7 +205,7 @@ abstract class DisjunctionScorer extends Scorer {
     return children;
   }
 
-  private void positionSubIterators() throws IOException {
+  protected void positionSubIterators() throws IOException {
     int doc = approximation.docID();
     DisiWrapper top = subScorers.top();
     while (top.doc < doc) {
@@ -221,7 +218,7 @@ abstract class DisjunctionScorer extends Scorer {
     final DisiPriorityQueue subIterators;
     final long cost;
 
-    int docID = -1;
+    int docID;
 
     public DisjunctionApproximation(DisiPriorityQueue subIterators) {
       this.subIterators = subIterators;
@@ -230,6 +227,7 @@ abstract class DisjunctionScorer extends Scorer {
         cost += w.cost;
       }
       this.cost = cost;
+      this.docID = subIterators.top().approximation.docID();
     }
 
     @Override
@@ -242,25 +240,12 @@ abstract class DisjunctionScorer extends Scorer {
       return docID;
     }
 
-    @Override
-    public int nextDoc() throws IOException {
-      DisiWrapper top = subIterators.top();
-      final int doc = top.doc;
-      do {
-        top.doc = top.approximation.nextDoc();
-        top = subIterators.updateTop();
-      } while (top.doc == doc);
-      docID = top.doc;
-
-      return docID;
-    }
-
-    @Override
-    public int advance(int target) throws IOException {
+    private int doNext(int target) throws IOException {
       DisiWrapper top = subIterators.top();
       do {
         top.doc = top.approximation.advance(target);
         if (top.doc == target) {
+          subIterators.updateTop();
           docID = target;
           return docID;
         }
@@ -269,6 +254,16 @@ abstract class DisjunctionScorer extends Scorer {
       docID = top.doc;
 
       return docID;
+    }
+
+    @Override
+    public int nextDoc() throws IOException {
+      return doNext(docID + 1);
+    }
+
+    @Override
+    public int advance(int target) throws IOException {
+      return doNext(target);
     }
   }
 }

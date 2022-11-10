@@ -16,6 +16,7 @@
  */
 package org.apache.lucene.search;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Iterator;
 import org.apache.lucene.util.PriorityQueue;
@@ -70,6 +71,16 @@ public final class DisiPriorityQueue implements Iterable<DisiWrapper> {
       list = prepend(heap[1], list);
     }
     return list;
+  }
+
+  public DisiWrapper topList(int docID) throws IOException {
+    DisiWrapper top = top();
+    while (top.doc < docID) {
+      top.doc = top.approximation.advance(docID);
+      top = updateTop();
+
+    }
+    return topList();
   }
 
   // prepend w1 (iterator) to w2 (list)

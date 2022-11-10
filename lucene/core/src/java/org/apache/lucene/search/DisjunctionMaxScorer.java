@@ -82,6 +82,7 @@ final class DisjunctionMaxScorer extends DisjunctionScorer {
   public float getMaxScore(int upTo) throws IOException {
     float scoreMax = 0;
     double otherScoreSum = 0;
+//    positionSubIterators();
     for (Scorer scorer : subScorers) {
       if (scorer.docID() <= upTo) {
         float subScore = scorer.getMaxScore(upTo);

@@ -258,7 +258,14 @@ abstract class DisjunctionScorer extends Scorer {
 
     @Override
     public int nextDoc() throws IOException {
-      return doNext(docID + 1);
+      DisiWrapper top = subIterators.top();
+      do {
+        top.doc = top.approximation.advance(docID + 1);
+        top = subIterators.updateTop();
+      } while (top.doc <= docID);
+      docID = top.doc;
+
+      return docID;
     }
 
     @Override

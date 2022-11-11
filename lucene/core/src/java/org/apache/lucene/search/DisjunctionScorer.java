@@ -27,8 +27,7 @@ abstract class DisjunctionScorer extends Scorer {
 
   private final boolean needsScores;
 
-  private final DisiPriorityQueue head;
-  private final PriorityQueue<DisiWrapper> tail;
+  private final DisjunctionDISIApproximation disiApproximation;
   private final DocIdSetIterator approximation;
   private final BlockMaxDISI blockMaxApprox;
   private final TwoPhase twoPhase;
@@ -39,27 +38,17 @@ abstract class DisjunctionScorer extends Scorer {
     if (subScorers.size() <= 1) {
       throw new IllegalArgumentException("There must be at least 2 subScorers");
     }
-    this.head = new DisiPriorityQueue(subScorers.size());
-    for (Scorer scorer : subScorers) {
-      final DisiWrapper w = new DisiWrapper(scorer);
-      this.head.add(w);
-    }
-    this.tail = new PriorityQueue<>(subScorers.size()) {
-      @Override
-      protected boolean lessThan(DisiWrapper a, DisiWrapper b) {
-        return a.cost < b.cost;
-      }
-    };
+    this.disiApproximation = new DisjunctionDISIApproximation(subScorers);
     this.needsScores = scoreMode != ScoreMode.COMPLETE_NO_SCORES;
     if (scoreMode == ScoreMode.TOP_SCORES) {
       for (Scorer scorer : subScorers) {
         scorer.advanceShallow(0);
       }
       this.blockMaxApprox =
-          new BlockMaxDISI(new DisjunctionApproximation(head, tail), this);
+          new BlockMaxDISI(disiApproximation, this);
       this.approximation = blockMaxApprox;
     } else {
-      this.approximation = new DisjunctionApproximation(head, tail);
+      this.approximation = disiApproximation;
       this.blockMaxApprox = null;
     }
 
@@ -68,20 +57,22 @@ abstract class DisjunctionScorer extends Scorer {
     long sumApproxCost = 0;
     // Compute matchCost as the average over the matchCost of the subScorers.
     // This is weighted by the cost, which is an expected number of matching documents.
-    for (DisiWrapper w : this.head) {
+    DisiWrapper w = disiApproximation.topList();
+    while (w != null) {
       long costWeight = (w.cost <= 1) ? 1 : w.cost;
       sumApproxCost += costWeight;
       if (w.twoPhaseView != null) {
         hasApproximation = true;
         sumMatchCost += w.matchCost * costWeight;
       }
+      w = w.next;
     }
 
     if (hasApproximation == false) { // no sub scorer supports approximations
       twoPhase = null;
     } else {
       final float matchCost = sumMatchCost / sumApproxCost;
-      twoPhase = new TwoPhase(approximation, matchCost);
+      twoPhase = new TwoPhase(approximation, matchCost, subScorers.size());
     }
   }
 
@@ -107,11 +98,11 @@ abstract class DisjunctionScorer extends Scorer {
     // priority queue of approximations on the current doc that have not been verified yet
     final PriorityQueue<DisiWrapper> unverifiedMatches;
 
-    private TwoPhase(DocIdSetIterator approximation, float matchCost) {
+    private TwoPhase(DocIdSetIterator approximation, float matchCost, int numScorers) {
       super(approximation);
       this.matchCost = matchCost;
       unverifiedMatches =
-          new PriorityQueue<DisiWrapper>(DisjunctionScorer.this.head.size()) {
+          new PriorityQueue<>(numScorers) {
             @Override
             protected boolean lessThan(DisiWrapper a, DisiWrapper b) {
               return a.matchCost < b.matchCost;
@@ -137,6 +128,8 @@ abstract class DisjunctionScorer extends Scorer {
       unverifiedMatches.clear();
 
       int doc = docID();
+      DisiPriorityQueue head = disiApproximation.head();
+      PriorityQueue<DisiWrapper> tail = disiApproximation.tail();
 
       if (needsScores == false) {
         for (DisiWrapper w = head.topList(); w != null; ) {
@@ -240,14 +233,7 @@ abstract class DisjunctionScorer extends Scorer {
 
   DisiWrapper getSubMatches() throws IOException {
     if (twoPhase == null) {
-      int doc = docID();
-      DisiWrapper tailTop = tail.pop();
-      while (tailTop != null) {
-        tailTop.doc = tailTop.approximation.advance(doc);
-        head.add(tailTop);
-        tailTop = tail.pop();
-      }
-      return head.topList();
+      return disiApproximation.topList();
     } else {
       return twoPhase.getSubMatches();
     }
@@ -278,81 +264,4 @@ abstract class DisjunctionScorer extends Scorer {
 //      top = subScorers.updateTop();
 //    }
 //  }
-
-  private static class DisjunctionApproximation extends DocIdSetIterator {
-    final long cost;
-
-    final DisiPriorityQueue head;
-    final PriorityQueue<DisiWrapper> tail;
-
-    int docID;
-
-    public DisjunctionApproximation(DisiPriorityQueue head, PriorityQueue<DisiWrapper> tail) {
-      long cost = 0;
-      for (DisiWrapper w : head) {
-        cost += w.cost;
-      }
-      this.cost = cost;
-      this.head = head;
-      this.tail = tail;
-      this.docID = head.top().approximation.docID();
-    }
-
-    @Override
-    public long cost() {
-      return cost;
-    }
-
-    @Override
-    public int docID() {
-      return docID;
-    }
-
-    private int doNext(int target) throws IOException {
-      if (target == DocIdSetIterator.NO_MORE_DOCS) {
-        docID = DocIdSetIterator.NO_MORE_DOCS;
-        return docID;
-      }
-
-      DisiWrapper top = head.top();
-      while (top != null && top.doc < target) {
-        tail.add(top);
-        head.pop();
-        top = head.top();
-      }
-
-      if (head.size() > 0 && top.doc == target) {
-        docID = target;
-        return docID;
-      }
-
-      top = tail.pop();
-      while (top != null) {
-        top.doc = top.approximation.advance(target);
-        boolean match = top.doc == target;
-        head.add(top);
-        if (match) {
-          docID = target;
-          return docID;
-        }
-        top = tail.pop();
-      }
-
-      docID = head.top().doc;
-      return docID;
-    }
-
-    @Override
-    public int nextDoc() throws IOException {
-      if (docID == DocIdSetIterator.NO_MORE_DOCS) {
-        return docID;
-      }
-      return doNext(docID + 1);
-    }
-
-    @Override
-    public int advance(int target) throws IOException {
-      return doNext(target);
-    }
-  }
 }

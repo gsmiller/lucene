@@ -27,19 +27,13 @@ import java.util.List;
 public abstract class IndriDisjunctionScorer extends IndriScorer {
 
   private final List<Scorer> subScorersList;
-  private final DisiPriorityQueue subScorers;
-  private final DocIdSetIterator approximation;
+  private final DisjunctionDISIApproximation approximation;
 
   protected IndriDisjunctionScorer(
       Weight weight, List<Scorer> subScorersList, ScoreMode scoreMode, float boost) {
     super(weight, boost);
     this.subScorersList = subScorersList;
-    this.subScorers = new DisiPriorityQueue(subScorersList.size());
-    for (Scorer scorer : subScorersList) {
-      final DisiWrapper w = new DisiWrapper(scorer);
-      this.subScorers.add(w);
-    }
-    this.approximation = new DisjunctionDISIApproximation(this.subScorers);
+    this.approximation = new DisjunctionDISIApproximation(subScorersList);
   }
 
   @Override
@@ -53,6 +47,7 @@ public abstract class IndriDisjunctionScorer extends IndriScorer {
   }
 
   public List<Scorer> getSubMatches() throws IOException {
+    approximation.advanceTail();
     return subScorersList;
   }
 
@@ -72,6 +67,6 @@ public abstract class IndriDisjunctionScorer extends IndriScorer {
 
   @Override
   public int docID() {
-    return subScorers.top().doc;
+    return approximation.docID();
   }
 }

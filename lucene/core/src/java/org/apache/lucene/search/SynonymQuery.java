@@ -308,17 +308,17 @@ public final class SynonymQuery extends Query {
       }
 
       // we use termscorers + disjunction as an impl detail
-      DisiPriorityQueue queue = new DisiPriorityQueue(iterators.size());
+      DisiWrapperFreq[] disiWrappers = new DisiWrapperFreq[iterators.size()];
       for (int i = 0; i < iterators.size(); i++) {
         PostingsEnum postings = iterators.get(i);
         final TermScorer termScorer = new TermScorer(this, postings, simScorer);
         float boost = termBoosts.get(i);
-        final DisiWrapperFreq wrapper = new DisiWrapperFreq(termScorer, boost);
-        queue.add(wrapper);
+        disiWrappers[i] = new DisiWrapperFreq(termScorer, boost);
       }
       // Even though it is called approximation, it is accurate since none of
       // the sub iterators are two-phase iterators.
-      DocIdSetIterator iterator = new DisjunctionDISIApproximation(queue);
+      DisjunctionDISIApproximation disiApproximation = new DisjunctionDISIApproximation(disiWrappers);
+      DocIdSetIterator iterator = disiApproximation;
 
       float[] boosts = new float[impacts.size()];
       for (int i = 0; i < boosts.length; i++) {
@@ -331,7 +331,7 @@ public final class SynonymQuery extends Query {
         iterator = impactsDisi;
       }
 
-      return new SynonymScorer(this, queue, iterator, impactsDisi, simScorer);
+      return new SynonymScorer(this, disiApproximation, iterator, impactsDisi, simScorer);
     }
 
     @Override
@@ -510,19 +510,19 @@ public final class SynonymQuery extends Query {
 
   private static class SynonymScorer extends Scorer {
 
-    private final DisiPriorityQueue queue;
+    private final DisjunctionDISIApproximation disiApproximation;
     private final DocIdSetIterator iterator;
     private final ImpactsDISI impactsDisi;
     private final LeafSimScorer simScorer;
 
     SynonymScorer(
         Weight weight,
-        DisiPriorityQueue queue,
+        DisjunctionDISIApproximation disiApproximation,
         DocIdSetIterator iterator,
         ImpactsDISI impactsDisi,
         LeafSimScorer simScorer) {
       super(weight);
-      this.queue = queue;
+      this.disiApproximation = disiApproximation;
       this.iterator = iterator;
       this.impactsDisi = impactsDisi;
       this.simScorer = simScorer;
@@ -534,7 +534,7 @@ public final class SynonymQuery extends Query {
     }
 
     float freq() throws IOException {
-      DisiWrapperFreq w = (DisiWrapperFreq) queue.topList();
+      DisiWrapperFreq w = (DisiWrapperFreq) disiApproximation.topList();
       float freq = w.freq();
       for (w = (DisiWrapperFreq) w.next; w != null; w = (DisiWrapperFreq) w.next) {
         freq += w.freq();

@@ -32,6 +32,8 @@ abstract class DisjunctionScorer extends Scorer {
   private final BlockMaxDISI blockMaxApprox;
   private final TwoPhase twoPhase;
 
+  private final DisiWrapper[] topList = new DisiWrapper[1];
+
   protected DisjunctionScorer(Weight weight, List<Scorer> subScorers, ScoreMode scoreMode)
       throws IOException {
     super(weight);
@@ -49,10 +51,10 @@ abstract class DisjunctionScorer extends Scorer {
         scorer.advanceShallow(0);
       }
       this.blockMaxApprox =
-          new BlockMaxDISI(new DisjunctionApproximation(this.subScorers), this);
+          new BlockMaxDISI(new DisjunctionApproximation(this.subScorers, topList), this);
       this.approximation = blockMaxApprox;
     } else {
-      this.approximation = new DisjunctionApproximation(this.subScorers);
+      this.approximation = new DisjunctionApproximation(this.subScorers, topList);
       this.blockMaxApprox = null;
     }
 
@@ -129,40 +131,84 @@ abstract class DisjunctionScorer extends Scorer {
       verifiedMatches = null;
       unverifiedMatches.clear();
 
-      for (DisiWrapper w = subScorers.topList(docID()); w != null; ) {
-        DisiWrapper next = w.next;
+      if (topList[0] == null) {
+        for (DisiWrapper w = subScorers.topList(docID()); w != null; ) {
+          DisiWrapper next = w.next;
 
+          if (w.twoPhaseView == null) {
+            // implicitly verified, move it to verifiedMatches
+            w.next = verifiedMatches;
+            verifiedMatches = w;
+
+            if (needsScores == false) {
+              // we can stop here
+              return true;
+            }
+          } else {
+            unverifiedMatches.add(w);
+          }
+          w = next;
+        }
+
+        if (verifiedMatches != null) {
+          return true;
+        }
+
+        // verify subs that have an two-phase iterator
+        // least-costly ones first
+        while (unverifiedMatches.size() > 0) {
+          DisiWrapper w = unverifiedMatches.pop();
+          if (w.twoPhaseView.matches()) {
+            w.next = null;
+            verifiedMatches = w;
+            return true;
+          }
+        }
+
+        return false;
+      } else {
+        DisiWrapper w = topList[0];
         if (w.twoPhaseView == null) {
-          // implicitly verified, move it to verifiedMatches
           w.next = verifiedMatches;
           verifiedMatches = w;
 
           if (needsScores == false) {
-            // we can stop here
             return true;
           }
         } else {
           unverifiedMatches.add(w);
         }
-        w = next;
-      }
 
-      if (verifiedMatches != null) {
-        return true;
-      }
+        int doc = docID();
+        w = subScorers.top();
+        while (w.doc < doc) { // what if there are more than one already on the target?
+          w.doc = w.approximation.advance(doc);
+          if (w.doc == doc) {
+            if (w.twoPhaseView == null) {
+              w.next = verifiedMatches;
+              verifiedMatches = w;
 
-      // verify subs that have an two-phase iterator
-      // least-costly ones first
-      while (unverifiedMatches.size() > 0) {
-        DisiWrapper w = unverifiedMatches.pop();
-        if (w.twoPhaseView.matches()) {
-          w.next = null;
-          verifiedMatches = w;
-          return true;
+              if (needsScores == false) {
+                return true;
+              }
+            } else {
+              unverifiedMatches.add(w);
+            }
+          }
+          w = subScorers.updateTop();
         }
-      }
 
-      return false;
+        while (unverifiedMatches.size() > 0) {
+          w = unverifiedMatches.pop();
+          if (w.twoPhaseView.matches()) {
+            verifiedMatches = w;
+            w.next = null;
+            return true;
+          }
+        }
+
+        return false;
+      }
     }
 
     @Override
@@ -219,8 +265,9 @@ abstract class DisjunctionScorer extends Scorer {
     final long cost;
 
     int docID;
+    final DisiWrapper[] topList;
 
-    public DisjunctionApproximation(DisiPriorityQueue subIterators) {
+    public DisjunctionApproximation(DisiPriorityQueue subIterators, DisiWrapper[] topList) {
       this.subIterators = subIterators;
       long cost = 0;
       for (DisiWrapper w : subIterators) {
@@ -228,6 +275,8 @@ abstract class DisjunctionScorer extends Scorer {
       }
       this.cost = cost;
       this.docID = subIterators.top().approximation.docID();
+      assert topList.length == 1;
+      this.topList = topList;
     }
 
     @Override
@@ -241,6 +290,7 @@ abstract class DisjunctionScorer extends Scorer {
     }
 
     private int doNext(int target) throws IOException {
+      topList[0] = null;
       if (target == DocIdSetIterator.NO_MORE_DOCS) {
         docID = DocIdSetIterator.NO_MORE_DOCS;
         return docID;
@@ -251,11 +301,15 @@ abstract class DisjunctionScorer extends Scorer {
         if (top.doc == target) {
           subIterators.updateTop();
           docID = target;
+          topList[0] = top;
+          top.next = null;
           return docID;
         }
         top = subIterators.updateTop();
       } while (top.doc < target);
       docID = top.doc;
+//      topList[0] = top;
+//      top.next = null;
 
       return docID;
     }

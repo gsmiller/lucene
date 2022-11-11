@@ -128,17 +128,14 @@ abstract class DisjunctionScorer extends Scorer {
       unverifiedMatches.clear();
 
       int doc = docID();
-      DisiPriorityQueue head = disiApproximation.head();
-      PriorityQueue<DisiWrapper> tail = disiApproximation.tail();
 
       if (needsScores == false) {
-        for (DisiWrapper w = head.topList(); w != null; ) {
+        for (DisiWrapper w = disiApproximation.head(); w != null; ) {
           DisiWrapper next = w.next;
 
           if (w.twoPhaseView == null) {
             w.next = null;
             verifiedMatches = w;
-
             return true;
           } else {
             unverifiedMatches.add(w);
@@ -147,23 +144,20 @@ abstract class DisjunctionScorer extends Scorer {
           w = next;
         }
 
-        DisiWrapper tailTop = tail.pop();
-        while (tailTop != null) {
-          tailTop.doc = tailTop.approximation.advance(doc);
-          head.add(tailTop);
-          if (tailTop.doc == doc) {
-            if (tailTop.twoPhaseView == null) {
-              tailTop.next = null;
-              verifiedMatches = tailTop;
-              tail.pop();
-
+        DisiPriorityQueue queue = disiApproximation.queue();
+        DisiWrapper top = queue.top();
+        while (top.doc < doc) {
+          top.doc = top.approximation.advance(doc);
+          if (top.doc == doc) {
+            if (top.twoPhaseView == null) {
+              top.next = null;
+              verifiedMatches = top;
               return true;
             } else {
-              unverifiedMatches.add(tailTop);
+              unverifiedMatches.add(top);
             }
           }
-
-          tailTop = tail.pop();
+          top = queue.updateTop();
         }
 
         while (unverifiedMatches.size() > 0) {
@@ -175,16 +169,8 @@ abstract class DisjunctionScorer extends Scorer {
           }
         }
 
-        return false;
       } else {
-        DisiWrapper tailTop = tail.pop();
-        while (tailTop != null) {
-          tailTop.doc = tailTop.approximation.advance(doc);
-          head.add(tailTop);
-          tailTop = tail.pop();
-        }
-
-        for (DisiWrapper w = head.topList(); w != null; ) {
+        for (DisiWrapper w = disiApproximation.topList(); w != null; ) {
           DisiWrapper next = w.next;
 
           if (w.twoPhaseView == null) {
@@ -212,8 +198,9 @@ abstract class DisjunctionScorer extends Scorer {
           }
         }
 
-        return false;
       }
+
+      return false;
     }
 
     @Override

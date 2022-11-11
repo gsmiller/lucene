@@ -89,7 +89,7 @@ public final class DisiPriorityQueue implements Iterable<DisiWrapper> {
     return w1;
   }
 
-  private DisiWrapper topList(DisiWrapper list, DisiWrapper[] heap, int size, int i) {
+  public DisiWrapper topList(DisiWrapper list, DisiWrapper[] heap, int size, int i) {
     final DisiWrapper w = heap[i];
     if (w.doc == list.doc) {
       list = prepend(w, list);

@@ -16,11 +16,8 @@
  */
 package org.apache.lucene.search;
 
-import org.apache.lucene.util.PriorityQueue;
-
 import java.io.IOException;
 import java.util.Collection;
-import java.util.List;
 
 /**
  * A {@link DocIdSetIterator} which is a disjunction of the approximations of the provided
@@ -29,8 +26,7 @@ import java.util.List;
  * @lucene.internal
  */
 public class DisjunctionDISIApproximation extends DocIdSetIterator {
-  private final DisiPriorityQueue head;
-  private final PriorityQueue<DisiWrapper> tail;
+  private final DisiPriorityQueue queue;
   private final long cost;
 
   private int docID;
@@ -50,45 +46,33 @@ public class DisjunctionDISIApproximation extends DocIdSetIterator {
     return disiWrappers;
   }
 
-  public DisjunctionDISIApproximation(DisiWrapper[] subScorers) {
-    this.head = new DisiPriorityQueue(subScorers.length);
-    head.addAll(subScorers, 0, subScorers.length);
-    this.tail = new PriorityQueue<>(subScorers.length) {
-      @Override
-      protected boolean lessThan(DisiWrapper a, DisiWrapper b) {
-        return a.cost < b.cost;
-      }
-    };
+  public DisjunctionDISIApproximation(DisiWrapper[] wrappers) {
+    queue = new DisiPriorityQueue(wrappers.length);
+    queue.addAll(wrappers, 0, wrappers.length);
     long cost = 0;
-    for (DisiWrapper w : head) {
+    for (DisiWrapper w : queue) {
       cost += w.cost;
     }
     this.cost = cost;
-    this.docID = head.top().approximation.docID();
+    this.docID = queue.top().approximation.docID();
   }
 
-  public DisiPriorityQueue head() {
-    return head;
-  }
-
-  public PriorityQueue<DisiWrapper> tail() {
-    return tail;
+  public DisiPriorityQueue queue() {
+    return queue;
   }
 
   public void advanceTail() throws IOException {
-    DisiWrapper tailTop = tail.pop();
-    while (tailTop != null) {
-      assert tailTop.doc < docID;
-      tailTop.doc = tailTop.approximation.advance(docID);
-      head.add(tailTop);
-      tailTop = tail.pop();
+    DisiWrapper top = queue.top();
+    while (top.doc < docID) {
+      top.doc = top.approximation.advance(docID);
+      top = queue.updateTop();
     }
-    assert tail.size() == 0;
+    assert queue.top().doc >= docID;
   }
 
   public DisiWrapper topList() throws IOException {
     advanceTail();
-    return head.topList();
+    return queue.topList();
   }
 
   @Override
@@ -107,31 +91,20 @@ public class DisjunctionDISIApproximation extends DocIdSetIterator {
       return docID;
     }
 
-    DisiWrapper top = head.top();
-    while (top != null && top.doc < target) {
-      tail.add(top);
-      head.pop();
-      top = head.top();
-    }
-
-    if (head.size() > 0 && top.doc == target) {
-      docID = target;
-      return docID;
-    }
-
-    top = tail.pop();
-    while (top != null) {
+    DisiWrapper top = queue.top();
+    while (top.doc < target) {
       top.doc = top.approximation.advance(target);
-      boolean match = top.doc == target;
-      head.add(top);
-      if (match) {
+      if (top.doc == target) {
         docID = target;
-        return docID;
-      }
-      top = tail.pop();
-    }
+        queue.updateTop();
 
-    docID = head.top().doc;
+        return docID;
+      } else {
+        top = queue.updateTop();
+      }
+    }
+    docID = queue.top().doc;
+
     return docID;
   }
 

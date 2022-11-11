@@ -137,47 +137,90 @@ abstract class DisjunctionScorer extends Scorer {
       unverifiedMatches.clear();
 
       int doc = docID();
-      DisiWrapper tailTop = tail.pop();
-      while (tailTop != null) {
-        tailTop.doc = tailTop.approximation.advance(doc);
-        head.add(tailTop);
-        tailTop = tail.pop();
-      }
 
-      for (DisiWrapper w = head.topList(doc); w != null; ) {
-        DisiWrapper next = w.next;
+      if (needsScores == false) {
+        for (DisiWrapper w = head.topList(); w != null; ) {
+          DisiWrapper next = w.next;
 
-        if (w.twoPhaseView == null) {
-          // implicitly verified, move it to verifiedMatches
-          w.next = verifiedMatches;
-          verifiedMatches = w;
+          if (w.twoPhaseView == null) {
+            w.next = null;
+            verifiedMatches = w;
 
-          if (needsScores == false) {
-            // we can stop here
+            return true;
+          } else {
+            unverifiedMatches.add(w);
+          }
+
+          w = next;
+        }
+
+        DisiWrapper tailTop = tail.pop();
+        while (tailTop != null) {
+          tailTop.doc = tailTop.approximation.advance(doc);
+          head.add(tailTop);
+          if (tailTop.doc == doc) {
+            if (tailTop.twoPhaseView == null) {
+              tailTop.next = null;
+              verifiedMatches = tailTop;
+              tail.pop();
+
+              return true;
+            } else {
+              unverifiedMatches.add(tailTop);
+            }
+          }
+
+          tailTop = tail.pop();
+        }
+
+        while (unverifiedMatches.size() > 0) {
+          DisiWrapper w = unverifiedMatches.pop();
+          if (w.twoPhaseView.matches()) {
+            w.next = null;
+            verifiedMatches = w;
             return true;
           }
-        } else {
-          unverifiedMatches.add(w);
         }
-        w = next;
-      }
 
-      if (verifiedMatches != null) {
-        return true;
-      }
+        return false;
+      } else {
+        DisiWrapper tailTop = tail.pop();
+        while (tailTop != null) {
+          tailTop.doc = tailTop.approximation.advance(doc);
+          head.add(tailTop);
+          tailTop = tail.pop();
+        }
 
-      // verify subs that have an two-phase iterator
-      // least-costly ones first
-      while (unverifiedMatches.size() > 0) {
-        DisiWrapper w = unverifiedMatches.pop();
-        if (w.twoPhaseView.matches()) {
-          w.next = null;
-          verifiedMatches = w;
+        for (DisiWrapper w = head.topList(); w != null; ) {
+          DisiWrapper next = w.next;
+
+          if (w.twoPhaseView == null) {
+            // implicitly verified, move it to verifiedMatches
+            w.next = verifiedMatches;
+            verifiedMatches = w;
+          } else {
+            unverifiedMatches.add(w);
+          }
+          w = next;
+        }
+
+        if (verifiedMatches != null) {
           return true;
         }
-      }
 
-      return false;
+        // verify subs that have an two-phase iterator
+        // least-costly ones first
+        while (unverifiedMatches.size() > 0) {
+          DisiWrapper w = unverifiedMatches.pop();
+          if (w.twoPhaseView.matches()) {
+            w.next = null;
+            verifiedMatches = w;
+            return true;
+          }
+        }
+
+        return false;
+      }
     }
 
     @Override
@@ -204,7 +247,7 @@ abstract class DisjunctionScorer extends Scorer {
         head.add(tailTop);
         tailTop = tail.pop();
       }
-      return head.topList(doc);
+      return head.topList();
     } else {
       return twoPhase.getSubMatches();
     }

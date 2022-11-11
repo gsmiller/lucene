@@ -27,7 +27,8 @@ abstract class DisjunctionScorer extends Scorer {
 
   private final boolean needsScores;
 
-  private final DisiPriorityQueue subScorers;
+  private final DisiPriorityQueue head;
+  private final PriorityQueue<DisiWrapper> tail;
   private final DocIdSetIterator approximation;
   private final BlockMaxDISI blockMaxApprox;
   private final TwoPhase twoPhase;
@@ -38,21 +39,27 @@ abstract class DisjunctionScorer extends Scorer {
     if (subScorers.size() <= 1) {
       throw new IllegalArgumentException("There must be at least 2 subScorers");
     }
-    this.subScorers = new DisiPriorityQueue(subScorers.size());
+    this.head = new DisiPriorityQueue(subScorers.size());
     for (Scorer scorer : subScorers) {
       final DisiWrapper w = new DisiWrapper(scorer);
-      this.subScorers.add(w);
+      this.head.add(w);
     }
+    this.tail = new PriorityQueue<>(subScorers.size()) {
+      @Override
+      protected boolean lessThan(DisiWrapper a, DisiWrapper b) {
+        return a.cost < b.cost;
+      }
+    };
     this.needsScores = scoreMode != ScoreMode.COMPLETE_NO_SCORES;
     if (scoreMode == ScoreMode.TOP_SCORES) {
       for (Scorer scorer : subScorers) {
         scorer.advanceShallow(0);
       }
       this.blockMaxApprox =
-          new BlockMaxDISI(new DisjunctionApproximation(this.subScorers), this);
+          new BlockMaxDISI(new DisjunctionApproximation(head, tail), this);
       this.approximation = blockMaxApprox;
     } else {
-      this.approximation = new DisjunctionApproximation(this.subScorers);
+      this.approximation = new DisjunctionApproximation(head, tail);
       this.blockMaxApprox = null;
     }
 
@@ -61,7 +68,7 @@ abstract class DisjunctionScorer extends Scorer {
     long sumApproxCost = 0;
     // Compute matchCost as the average over the matchCost of the subScorers.
     // This is weighted by the cost, which is an expected number of matching documents.
-    for (DisiWrapper w : this.subScorers) {
+    for (DisiWrapper w : this.head) {
       long costWeight = (w.cost <= 1) ? 1 : w.cost;
       sumApproxCost += costWeight;
       if (w.twoPhaseView != null) {
@@ -104,7 +111,7 @@ abstract class DisjunctionScorer extends Scorer {
       super(approximation);
       this.matchCost = matchCost;
       unverifiedMatches =
-          new PriorityQueue<DisiWrapper>(DisjunctionScorer.this.subScorers.size()) {
+          new PriorityQueue<DisiWrapper>(DisjunctionScorer.this.head.size()) {
             @Override
             protected boolean lessThan(DisiWrapper a, DisiWrapper b) {
               return a.matchCost < b.matchCost;
@@ -129,7 +136,15 @@ abstract class DisjunctionScorer extends Scorer {
       verifiedMatches = null;
       unverifiedMatches.clear();
 
-      for (DisiWrapper w = subScorers.topList(docID()); w != null; ) {
+      int doc = docID();
+      DisiWrapper tailTop = tail.pop();
+      while (tailTop != null) {
+        tailTop.doc = tailTop.approximation.advance(doc);
+        head.add(tailTop);
+        tailTop = tail.pop();
+      }
+
+      for (DisiWrapper w = head.topList(doc); w != null; ) {
         DisiWrapper next = w.next;
 
         if (w.twoPhaseView == null) {
@@ -182,7 +197,14 @@ abstract class DisjunctionScorer extends Scorer {
 
   DisiWrapper getSubMatches() throws IOException {
     if (twoPhase == null) {
-      return subScorers.topList(docID());
+      int doc = docID();
+      DisiWrapper tailTop = tail.pop();
+      while (tailTop != null) {
+        tailTop.doc = tailTop.approximation.advance(doc);
+        head.add(tailTop);
+        tailTop = tail.pop();
+      }
+      return head.topList(doc);
     } else {
       return twoPhase.getSubMatches();
     }
@@ -205,29 +227,32 @@ abstract class DisjunctionScorer extends Scorer {
     return children;
   }
 
-  protected void positionSubIterators() throws IOException {
-    int doc = approximation.docID();
-    DisiWrapper top = subScorers.top();
-    while (top.doc < doc) {
-      top.doc = top.approximation.advance(doc);
-      top = subScorers.updateTop();
-    }
-  }
+//  protected void positionSubIterators() throws IOException {
+//    int doc = approximation.docID();
+//    DisiWrapper top = subScorers.top();
+//    while (top.doc < doc) {
+//      top.doc = top.approximation.advance(doc);
+//      top = subScorers.updateTop();
+//    }
+//  }
 
   private static class DisjunctionApproximation extends DocIdSetIterator {
-    final DisiPriorityQueue subIterators;
     final long cost;
+
+    final DisiPriorityQueue head;
+    final PriorityQueue<DisiWrapper> tail;
 
     int docID;
 
-    public DisjunctionApproximation(DisiPriorityQueue subIterators) {
-      this.subIterators = subIterators;
+    public DisjunctionApproximation(DisiPriorityQueue head, PriorityQueue<DisiWrapper> tail) {
       long cost = 0;
-      for (DisiWrapper w : subIterators) {
+      for (DisiWrapper w : head) {
         cost += w.cost;
       }
       this.cost = cost;
-      this.docID = subIterators.top().approximation.docID();
+      this.head = head;
+      this.tail = tail;
+      this.docID = head.top().approximation.docID();
     }
 
     @Override
@@ -245,18 +270,32 @@ abstract class DisjunctionScorer extends Scorer {
         docID = DocIdSetIterator.NO_MORE_DOCS;
         return docID;
       }
-      DisiWrapper top = subIterators.top();
-      do {
+
+      DisiWrapper top = head.top();
+      while (top != null && top.doc < target) {
+        tail.add(top);
+        head.pop();
+        top = head.top();
+      }
+
+      if (head.size() > 0 && top.doc == target) {
+        docID = target;
+        return docID;
+      }
+
+      top = tail.pop();
+      while (top != null) {
         top.doc = top.approximation.advance(target);
-        if (top.doc == target) {
-          subIterators.updateTop();
+        boolean match = top.doc == target;
+        head.add(top);
+        if (match) {
           docID = target;
           return docID;
         }
-        top = subIterators.updateTop();
-      } while (top.doc < target);
-      docID = top.doc;
+        top = tail.pop();
+      }
 
+      docID = head.top().doc;
       return docID;
     }
 

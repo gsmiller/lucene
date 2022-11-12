@@ -129,7 +129,6 @@ abstract class DisjunctionScorer extends Scorer {
 
       int doc = docID();
       DisiPriorityQueue head = disiApproximation.head();
-      PriorityQueue<DisiWrapper> tail = disiApproximation.tail();
 
       if (needsScores == false) {
         for (DisiWrapper w = head.topList(); w != null; ) {
@@ -147,23 +146,21 @@ abstract class DisjunctionScorer extends Scorer {
           w = next;
         }
 
-        DisiWrapper tailTop = tail.pop();
-        while (tailTop != null) {
-          tailTop.doc = tailTop.approximation.advance(doc);
-          head.add(tailTop);
-          if (tailTop.doc == doc) {
-            if (tailTop.twoPhaseView == null) {
-              tailTop.next = null;
-              verifiedMatches = tailTop;
-              tail.pop();
+        DisiWrapper[] tail = disiApproximation.tail();
+        for (int i = disiApproximation.tailSize() - 1; i >= 0; i--) {
+          DisiWrapper w = tail[i];
+          w.doc = w.approximation.advance(doc);
+          disiApproximation.popTail();
+          if (w.doc == doc) {
+            if (w.twoPhaseView == null) {
+              w.next = null;
+              verifiedMatches = w;
 
               return true;
             } else {
-              unverifiedMatches.add(tailTop);
+              unverifiedMatches.add(w);
             }
           }
-
-          tailTop = tail.pop();
         }
 
         while (unverifiedMatches.size() > 0) {
@@ -177,12 +174,7 @@ abstract class DisjunctionScorer extends Scorer {
 
         return false;
       } else {
-        DisiWrapper tailTop = tail.pop();
-        while (tailTop != null) {
-          tailTop.doc = tailTop.approximation.advance(doc);
-          head.add(tailTop);
-          tailTop = tail.pop();
-        }
+        disiApproximation.advanceTail();
 
         for (DisiWrapper w = head.topList(); w != null; ) {
           DisiWrapper next = w.next;

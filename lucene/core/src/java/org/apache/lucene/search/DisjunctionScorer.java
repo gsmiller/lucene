@@ -28,6 +28,7 @@ abstract class DisjunctionScorer extends Scorer {
   private final boolean needsScores;
 
   private final DisiPriorityQueue subScorers;
+  private final DisjunctionDISIApproximation disjunctionDISIApproximation;
   private final DocIdSetIterator approximation;
   private final BlockMaxDISI blockMaxApprox;
   private final TwoPhase twoPhase;
@@ -43,16 +44,17 @@ abstract class DisjunctionScorer extends Scorer {
       final DisiWrapper w = new DisiWrapper(scorer);
       this.subScorers.add(w);
     }
+    this.disjunctionDISIApproximation = new DisjunctionDISIApproximation(this.subScorers);
     this.needsScores = scoreMode != ScoreMode.COMPLETE_NO_SCORES;
     if (scoreMode == ScoreMode.TOP_SCORES) {
       for (Scorer scorer : subScorers) {
         scorer.advanceShallow(0);
       }
       this.blockMaxApprox =
-          new BlockMaxDISI(new DisjunctionApproximation(this.subScorers), this);
+          new BlockMaxDISI(disjunctionDISIApproximation, this);
       this.approximation = blockMaxApprox;
     } else {
-      this.approximation = new DisjunctionApproximation(this.subScorers);
+      this.approximation = disjunctionDISIApproximation;
       this.blockMaxApprox = null;
     }
 
@@ -104,7 +106,7 @@ abstract class DisjunctionScorer extends Scorer {
       super(approximation);
       this.matchCost = matchCost;
       unverifiedMatches =
-          new PriorityQueue<DisiWrapper>(DisjunctionScorer.this.subScorers.size()) {
+          new PriorityQueue<>(DisjunctionScorer.this.subScorers.size()) {
             @Override
             protected boolean lessThan(DisiWrapper a, DisiWrapper b) {
               return a.matchCost < b.matchCost;
@@ -129,7 +131,9 @@ abstract class DisjunctionScorer extends Scorer {
       verifiedMatches = null;
       unverifiedMatches.clear();
 
-      for (DisiWrapper w = subScorers.topList(docID()); w != null; ) {
+      disjunctionDISIApproximation.advanceAll();
+
+      for (DisiWrapper w = subScorers.topList(); w != null; ) {
         DisiWrapper next = w.next;
 
         if (w.twoPhaseView == null) {
@@ -182,7 +186,8 @@ abstract class DisjunctionScorer extends Scorer {
 
   DisiWrapper getSubMatches() throws IOException {
     if (twoPhase == null) {
-      return subScorers.topList(docID());
+      disjunctionDISIApproximation.advanceAll();
+      return subScorers.topList();
     } else {
       return twoPhase.getSubMatches();
     }
@@ -203,74 +208,5 @@ abstract class DisjunctionScorer extends Scorer {
       children.add(new ChildScorable(scorer.scorer, "SHOULD"));
     }
     return children;
-  }
-
-  protected void positionSubIterators() throws IOException {
-    int doc = approximation.docID();
-    DisiWrapper top = subScorers.top();
-    while (top.doc < doc) {
-      top.doc = top.approximation.advance(doc);
-      top = subScorers.updateTop();
-    }
-  }
-
-  private static class DisjunctionApproximation extends DocIdSetIterator {
-    final DisiPriorityQueue subIterators;
-    final long cost;
-
-    int docID;
-
-    public DisjunctionApproximation(DisiPriorityQueue subIterators) {
-      this.subIterators = subIterators;
-      long cost = 0;
-      for (DisiWrapper w : subIterators) {
-        cost += w.cost;
-      }
-      this.cost = cost;
-      this.docID = subIterators.top().approximation.docID();
-    }
-
-    @Override
-    public long cost() {
-      return cost;
-    }
-
-    @Override
-    public int docID() {
-      return docID;
-    }
-
-    private int doNext(int target) throws IOException {
-      if (target == DocIdSetIterator.NO_MORE_DOCS) {
-        docID = DocIdSetIterator.NO_MORE_DOCS;
-        return docID;
-      }
-      DisiWrapper top = subIterators.top();
-      do {
-        top.doc = top.approximation.advance(target);
-        if (top.doc == target) {
-          subIterators.updateTop();
-          docID = target;
-          return docID;
-        }
-        top = subIterators.updateTop();
-      } while (top.doc < target);
-      docID = top.doc;
-
-      return docID;
-    }
-
-    @Override
-    public int nextDoc() throws IOException {
-      if (docID == DocIdSetIterator.NO_MORE_DOCS) {
-        return docID;
-      }
-      return doNext(docID + 1);
-    }
-
-    @Override
-    public int advance(int target) throws IOException {
-      return doNext(target);
-    }
   }
 }

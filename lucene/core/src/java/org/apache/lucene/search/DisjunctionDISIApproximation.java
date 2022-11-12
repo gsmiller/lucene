@@ -25,9 +25,10 @@ import java.io.IOException;
  * @lucene.internal
  */
 public class DisjunctionDISIApproximation extends DocIdSetIterator {
-
   final DisiPriorityQueue subIterators;
   final long cost;
+
+  int docID;
 
   public DisjunctionDISIApproximation(DisiPriorityQueue subIterators) {
     this.subIterators = subIterators;
@@ -36,6 +37,7 @@ public class DisjunctionDISIApproximation extends DocIdSetIterator {
       cost += w.cost;
     }
     this.cost = cost;
+    this.docID = subIterators.top().approximation.docID();
   }
 
   @Override
@@ -45,29 +47,49 @@ public class DisjunctionDISIApproximation extends DocIdSetIterator {
 
   @Override
   public int docID() {
-    return subIterators.top().doc;
+    return docID;
+  }
+
+  private int doNext(int target) throws IOException {
+    if (target == DocIdSetIterator.NO_MORE_DOCS) {
+      docID = DocIdSetIterator.NO_MORE_DOCS;
+      return docID;
+    }
+
+    DisiWrapper top = subIterators.top();
+    do {
+      top.doc = top.approximation.advance(target);
+      if (top.doc == target) {
+        subIterators.updateTop();
+        docID = target;
+        return docID;
+      }
+      top = subIterators.updateTop();
+    } while (top.doc < target);
+    docID = top.doc;
+
+    return docID;
   }
 
   @Override
   public int nextDoc() throws IOException {
-    DisiWrapper top = subIterators.top();
-    final int doc = top.doc;
-    do {
-      top.doc = top.approximation.nextDoc();
-      top = subIterators.updateTop();
-    } while (top.doc == doc);
-
-    return top.doc;
+    if (docID == DocIdSetIterator.NO_MORE_DOCS) {
+      return docID;
+    }
+    return doNext(docID + 1);
   }
 
   @Override
   public int advance(int target) throws IOException {
-    DisiWrapper top = subIterators.top();
-    do {
-      top.doc = top.approximation.advance(target);
-      top = subIterators.updateTop();
-    } while (top.doc < target);
+    return doNext(target);
+  }
 
-    return top.doc;
+  public void advanceAll() throws IOException {
+    DisiWrapper top = subIterators.top();
+    while (top.doc < docID) {
+      top.doc = top.approximation.advance(docID);
+      top = subIterators.updateTop();
+    }
+    assert top.doc == docID;
   }
 }

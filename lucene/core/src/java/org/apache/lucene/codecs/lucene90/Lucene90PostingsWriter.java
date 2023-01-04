@@ -384,8 +384,10 @@ public final class Lucene90PostingsWriter extends PushPostingsWriterBase {
       }
       if (state.docFreq <= 8) {
         pulsed = new int[state.docFreq];
+        int last = 0;
         for (int i = 0; i < state.docFreq; i++) {
-          pulsed[i] = (int) docDeltaBuffer[i];
+          pulsed[i] = last + (int) docDeltaBuffer[i];
+          last = pulsed[i];
         }
       } else {
         pulsed = null;

@@ -396,8 +396,10 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       singletonDocID = termState.singletonDocID;
       if (termState.pulsed != null) {
         pulsed = Arrays.copyOf(termState.pulsed, termState.pulsed.length);
+      } else {
+        pulsed = null;
       }
-      if (docFreq > 8 || (docFreq > 1 && needsFreq)) {
+      if (docFreq > 1) {
         if (docIn == null) {
           // lazy init
           docIn = startDocIn.clone();
@@ -481,7 +483,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
         freqBuffer[0] = totalTermFreq;
         docBuffer[1] = NO_MORE_DOCS;
         blockUpto++;
-      } else if (docFreq <= 8 && needsFreq == false) {
+      } else if (pulsed != null && needsFreq == false) {
         assert pulsed.length == docFreq;
         for (int i = 0; i < docFreq; i++) {
           docBuffer[i] = pulsed[i];

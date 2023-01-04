@@ -224,6 +224,8 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       for (int i = 0; i < termState.docFreq; i++) {
         termState.pulsed[i] = in.readInt();
       }
+    } else {
+      termState.pulsed = null;
     }
 
     if (fieldHasPositions) {

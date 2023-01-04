@@ -368,6 +368,8 @@ public final class Lucene90PostingsWriter extends PushPostingsWriterBase {
       singletonDocID = (int) docDeltaBuffer[0];
       pulsed = null;
     } else {
+      singletonDocID = -1;
+      // vInt encode the remaining doc deltas and freqs:
       for (int i = 0; i < docBufferUpto; i++) {
         final int docDelta = (int) docDeltaBuffer[i];
         final int freq = (int) freqBuffer[i];
@@ -388,7 +390,6 @@ public final class Lucene90PostingsWriter extends PushPostingsWriterBase {
       } else {
         pulsed = null;
       }
-      singletonDocID = -1;
     }
 
     final long lastPosBlockOffset;

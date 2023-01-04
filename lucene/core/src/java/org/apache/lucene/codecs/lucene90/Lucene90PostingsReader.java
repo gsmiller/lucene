@@ -220,12 +220,9 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     }
 
     if (termState.docFreq > 1 && termState.docFreq <= 8) {
-      termState.pulsed = new int[termState.docFreq];
       for (int i = 0; i < termState.docFreq; i++) {
         termState.pulsed[i] = in.readInt();
       }
-    } else {
-      termState.pulsed = null;
     }
 
     if (fieldHasPositions) {
@@ -357,7 +354,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     // (needsFreq=false)
     private boolean isFreqsRead;
     private int singletonDocID; // docid when there is a single pulsed posting, otherwise -1
-    private int[] pulsed;
+    private int[] pulsed = new int[8];
 
     public BlockDocsEnum(FieldInfo fieldInfo) throws IOException {
       this.startDocIn = Lucene90PostingsReader.this.docIn;
@@ -394,12 +391,10 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       docTermStartFP = termState.docStartFP;
       skipOffset = termState.skipOffset;
       singletonDocID = termState.singletonDocID;
-      if (termState.pulsed != null) {
-        pulsed = Arrays.copyOf(termState.pulsed, termState.pulsed.length);
-      } else {
-        pulsed = null;
+      if (needsFreq == false && docFreq > 1 && docFreq <= 8) {
+        System.arraycopy(termState.pulsed, 0, pulsed, 0, docFreq);
       }
-      if (docFreq > 1) {
+      if (docFreq > 8 || (docFreq > 1 && needsFreq)) {
         if (docIn == null) {
           // lazy init
           docIn = startDocIn.clone();
@@ -483,8 +478,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
         freqBuffer[0] = totalTermFreq;
         docBuffer[1] = NO_MORE_DOCS;
         blockUpto++;
-      } else if (pulsed != null && needsFreq == false) {
-        assert pulsed.length == docFreq;
+      } else if (docFreq <= 8 && needsFreq == false) {
         for (int i = 0; i < docFreq; i++) {
           docBuffer[i] = pulsed[i];
         }

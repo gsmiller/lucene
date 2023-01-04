@@ -17,6 +17,8 @@
 package org.apache.lucene.codecs.lucene90;
 
 import java.io.IOException;
+import java.util.Arrays;
+
 import org.apache.lucene.codecs.BlockTermState;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.FieldsConsumer;
@@ -463,6 +465,8 @@ public final class Lucene90PostingsFormat extends PostingsFormat {
      */
     public int singletonDocID;
 
+    public int[] pulsed;
+
     /** Sole constructor. */
     public IntBlockTermState() {
       skipOffset = -1;
@@ -487,6 +491,9 @@ public final class Lucene90PostingsFormat extends PostingsFormat {
       lastPosBlockOffset = other.lastPosBlockOffset;
       skipOffset = other.skipOffset;
       singletonDocID = other.singletonDocID;
+      if (other.pulsed != null) {
+        pulsed = Arrays.copyOf(other.pulsed, other.pulsed.length);
+      }
     }
 
     @Override

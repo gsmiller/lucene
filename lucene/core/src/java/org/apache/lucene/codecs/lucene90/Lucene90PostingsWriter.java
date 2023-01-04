@@ -362,12 +362,12 @@ public final class Lucene90PostingsWriter extends PushPostingsWriterBase {
     // docFreq == 1, don't write the single docid/freq to a separate file along with a pointer to
     // it.
     final int singletonDocID;
+    final int[] pulsed;
     if (state.docFreq == 1) {
       // pulse the singleton docid into the term dictionary, freq is implicitly totalTermFreq
       singletonDocID = (int) docDeltaBuffer[0];
+      pulsed = null;
     } else {
-      singletonDocID = -1;
-      // vInt encode the remaining doc deltas and freqs:
       for (int i = 0; i < docBufferUpto; i++) {
         final int docDelta = (int) docDeltaBuffer[i];
         final int freq = (int) freqBuffer[i];
@@ -380,6 +380,15 @@ public final class Lucene90PostingsWriter extends PushPostingsWriterBase {
           docOut.writeVInt(freq);
         }
       }
+      if (state.docFreq <= 8) {
+        pulsed = new int[state.docFreq];
+        for (int i = 0; i < state.docFreq; i++) {
+          pulsed[i] = (int) docDeltaBuffer[i];
+        }
+      } else {
+        pulsed = null;
+      }
+      singletonDocID = -1;
     }
 
     final long lastPosBlockOffset;
@@ -457,6 +466,7 @@ public final class Lucene90PostingsWriter extends PushPostingsWriterBase {
     state.posStartFP = posStartFP;
     state.payStartFP = payStartFP;
     state.singletonDocID = singletonDocID;
+    state.pulsed = pulsed;
     state.skipOffset = skipOffset;
     state.lastPosBlockOffset = lastPosBlockOffset;
     docBufferUpto = 0;
@@ -489,6 +499,13 @@ public final class Lucene90PostingsWriter extends PushPostingsWriterBase {
       out.writeVLong((state.docStartFP - lastState.docStartFP) << 1);
       if (state.singletonDocID != -1) {
         out.writeVInt(state.singletonDocID);
+      }
+    }
+
+    if (state.pulsed != null) {
+      assert state.pulsed.length > 1 && state.pulsed.length <= 8;
+      for (int p : state.pulsed) {
+        out.writeInt(p);
       }
     }
 

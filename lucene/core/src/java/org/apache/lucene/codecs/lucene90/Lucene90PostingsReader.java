@@ -219,6 +219,13 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       termState.singletonDocID += BitUtil.zigZagDecode(l >>> 1);
     }
 
+    if (termState.docFreq > 1 && termState.docFreq <= 8) {
+      termState.pulsed = new int[termState.docFreq];
+      for (int i = 0; i < termState.docFreq; i++) {
+        termState.pulsed[i] = in.readInt();
+      }
+    }
+
     if (fieldHasPositions) {
       termState.posStartFP += in.readVLong();
       if (fieldHasOffsets || fieldHasPayloads) {
@@ -348,6 +355,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     // (needsFreq=false)
     private boolean isFreqsRead;
     private int singletonDocID; // docid when there is a single pulsed posting, otherwise -1
+    private int[] pulsed;
 
     public BlockDocsEnum(FieldInfo fieldInfo) throws IOException {
       this.startDocIn = Lucene90PostingsReader.this.docIn;
@@ -377,12 +385,17 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     }
 
     public PostingsEnum reset(IntBlockTermState termState, int flags) throws IOException {
+      this.needsFreq = PostingsEnum.featureRequested(flags, PostingsEnum.FREQS);
+
       docFreq = termState.docFreq;
       totalTermFreq = indexHasFreq ? termState.totalTermFreq : docFreq;
       docTermStartFP = termState.docStartFP;
       skipOffset = termState.skipOffset;
       singletonDocID = termState.singletonDocID;
-      if (docFreq > 1) {
+      if (termState.pulsed != null) {
+        pulsed = Arrays.copyOf(termState.pulsed, termState.pulsed.length);
+      }
+      if (docFreq > 8 || (docFreq > 1 && needsFreq)) {
         if (docIn == null) {
           // lazy init
           docIn = startDocIn.clone();
@@ -391,7 +404,6 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       }
 
       doc = -1;
-      this.needsFreq = PostingsEnum.featureRequested(flags, PostingsEnum.FREQS);
       this.isFreqsRead = true;
       if (indexHasFreq == false || needsFreq == false) {
         for (int i = 0; i < ForUtil.BLOCK_SIZE; ++i) {
@@ -467,6 +479,13 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
         freqBuffer[0] = totalTermFreq;
         docBuffer[1] = NO_MORE_DOCS;
         blockUpto++;
+      } else if (docFreq <= 8 && needsFreq == false) {
+        assert pulsed.length == docFreq;
+        for (int i = 0; i < docFreq; i++) {
+          docBuffer[i] = pulsed[i];
+        }
+        docBuffer[docFreq] = NO_MORE_DOCS;
+        blockUpto += docFreq;
       } else {
         // Read vInts:
         readVIntBlock(docIn, docBuffer, freqBuffer, left, indexHasFreq);

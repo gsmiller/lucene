@@ -95,36 +95,40 @@ public class TermNotInSetQuery extends Query {
           @Override
           public Scorer get(long leadCost) throws IOException {
             Scorer baseScorer = baseScoreSupplier.get(leadCost);
-            
+
+            if (terms.length == 1) {
+              return docAtATimeScorer(baseScorer, weight, context);
+            }
+
             if (fi.getDocValuesType() != DocValuesType.SORTED_SET && fi.getDocValuesType() != DocValuesType.SORTED) {
               if (terms.length > IndexSearcher.getMaxClauseCount()) {
                 return termAtATimeScorer(baseScorer, weight, context);
               } else {
                 return docAtATimeScorer(baseScorer, weight, context);
               }
+            }
+
+            final long numCandidates = Math.min(baseScorer.iterator().cost(), leadCost);
+            if (terms.length >= numCandidates) {
+              return docValuesScorer(baseScorer, weight, context);
             } else {
-              final long numCandidates = Math.min(baseScorer.iterator().cost(), leadCost);
-              if (terms.length >= numCandidates) {
+              long totalDensity = 0;
+              TermsEnum termsEnum = context.reader().terms(field).iterator();
+              TermState[] termStates = new TermState[terms.length];
+              for (int i = 0; i < terms.length; i++) {
+                BytesRef term = terms[i];
+                if (termsEnum.seekExact(term) == false) {
+                  termStates[i] = null;
+                } else {
+                  totalDensity += termsEnum.docFreq();
+                  termStates[i] = termsEnum.termState();
+                }
+              }
+
+              if (totalDensity / (K * numCandidates) >= 1.0) {
                 return docValuesScorer(baseScorer, weight, context);
               } else {
-                long totalDensity = 0;
-                TermsEnum termsEnum = context.reader().terms(field).iterator();
-                TermState[] termStates = new TermState[terms.length];
-                for (int i = 0; i < terms.length; i++) {
-                  BytesRef term = terms[i];
-                  if (termsEnum.seekExact(term) == false) {
-                    termStates[i] = null;
-                  } else {
-                    totalDensity += termsEnum.docFreq();
-                    termStates[i] = termsEnum.termState();
-                  }
-                }
-
-                if (totalDensity / (K * numCandidates) >= 1.0) {
-                  return docValuesScorer(baseScorer, weight, context);
-                } else {
-                  return docAtATimeScorer(baseScorer, weight, termStates, termsEnum);
-                }
+                return docAtATimeScorer(baseScorer, weight, termStates, termsEnum);
               }
             }
           }

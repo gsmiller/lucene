@@ -8,10 +8,15 @@ import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.TermState;
+import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
+import org.apache.lucene.search.ConstantScoreScorer;
+import org.apache.lucene.search.ConstantScoreWeight;
 import org.apache.lucene.search.DisiPriorityQueue;
 import org.apache.lucene.search.DisiWrapper;
+import org.apache.lucene.search.DocIdSet;
 import org.apache.lucene.search.DocIdSetIterator;
+import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.FilterWeight;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.MatchAllDocsQuery;
@@ -22,30 +27,28 @@ import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.ScorerSupplier;
 import org.apache.lucene.search.TwoPhaseIterator;
 import org.apache.lucene.search.Weight;
+import org.apache.lucene.util.BitDocIdSet;
 import org.apache.lucene.util.BitSet;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.DocIdSetBuilder;
 import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.LongBitSet;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 
 public class TermNotInSetQuery extends Query {
+  private static final double J = 1.0;
   private static final double K = 1.0;
 
-  private final Query baseQuery;
   private final String field;
   private final BytesRef[] terms;
 
   public TermNotInSetQuery(String field, Collection<BytesRef> terms) {
-    this(new MatchAllDocsQuery(), field, terms);
-  }
-
-  public TermNotInSetQuery(Query baseQuery, String field, Collection<BytesRef> terms) {
-    this.baseQuery = baseQuery;
     this.field = field;
 
     final Set<BytesRef> uniqueTerms;
@@ -64,9 +67,8 @@ public class TermNotInSetQuery extends Query {
 
   @Override
   public Weight createWeight(IndexSearcher searcher, ScoreMode scoreMode, float boost) throws IOException {
-    Weight baseWeight = baseQuery.createWeight(searcher, scoreMode, boost);
 
-    return new FilterWeight(baseWeight) {
+    return new ConstantScoreWeight(this,  boost) {
 
       @Override
       public Scorer scorer(LeafReaderContext context) throws IOException {
@@ -80,37 +82,46 @@ public class TermNotInSetQuery extends Query {
       
       @Override
       public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
-        ScorerSupplier baseScoreSupplier = baseWeight.scorerSupplier(context);
-        if (baseScoreSupplier == null) {
+
+        if (terms.length == 0) {
           return null;
         }
 
         FieldInfo fi = context.reader().getFieldInfos().fieldInfo(field);
         if (fi == null) {
-          return baseScoreSupplier;
+          return null;
         }
+
+        final long cost;
+        final long queryTermsCount = terms.length;
+        Terms indexTerms = context.reader().terms(field);
+        long potentialExtraCost = indexTerms.getSumDocFreq();
+        final long indexedTermCount = indexTerms.size();
+        if (indexedTermCount != -1) {
+          potentialExtraCost -= indexedTermCount;
+        }
+        cost = queryTermsCount + potentialExtraCost;
 
         Weight weight = this;
         return new ScorerSupplier() {
+
           @Override
           public Scorer get(long leadCost) throws IOException {
-            Scorer baseScorer = baseScoreSupplier.get(leadCost);
 
             if (terms.length == 1) {
-              return docAtATimeScorer(baseScorer, weight, context);
+              return docAtATimeScorer(weight, context);
             }
 
             if (fi.getDocValuesType() != DocValuesType.SORTED_SET && fi.getDocValuesType() != DocValuesType.SORTED) {
               if (terms.length > IndexSearcher.getMaxClauseCount()) {
-                return termAtATimeScorer(baseScorer, weight, context);
+                return termAtATimeScorer(weight, context);
               } else {
-                return docAtATimeScorer(baseScorer, weight, context);
+                return docAtATimeScorer(weight, context);
               }
             }
 
-            final long numCandidates = Math.min(baseScorer.iterator().cost(), leadCost);
-            if (terms.length >= numCandidates) {
-              return docValuesScorer(baseScorer, weight, context);
+            if (terms.length >= J * leadCost) {
+              return docValuesScorer(weight, context);
             } else {
               long totalDensity = 0;
               TermsEnum termsEnum = context.reader().terms(field).iterator();
@@ -125,22 +136,27 @@ public class TermNotInSetQuery extends Query {
                 }
               }
 
-              if (totalDensity / (K * numCandidates) >= 1.0) {
-                return docValuesScorer(baseScorer, weight, context);
+              if (totalDensity / (K * leadCost) >= 1.0) {
+                return docValuesScorer(weight, context);
               } else {
-                return docAtATimeScorer(baseScorer, weight, termStates, termsEnum);
+                return docAtATimeScorer(weight, context, termStates, termsEnum);
               }
             }
           }
 
           @Override
           public long cost() {
-            return baseScoreSupplier.cost();
+            return cost;
           }
         };
       }
 
-      private Scorer docAtATimeScorer(Scorer baseScorer, Weight weight, LeafReaderContext context) throws IOException {
+      @Override
+      public Explanation explain(LeafReaderContext context, int doc) throws IOException {
+        return null;
+      }
+
+      private Scorer docAtATimeScorer(Weight weight, LeafReaderContext context) throws IOException {
         DisiWrapper[] disiWrappers = new DisiWrapper[terms.length];
         int disiCount = 0;
         for (int i = 0; i < terms.length; i++) {
@@ -151,10 +167,10 @@ public class TermNotInSetQuery extends Query {
           }
         }
 
-        return docAtATimeScorer(baseScorer, weight, disiWrappers, disiCount);
+        return docAtATimeScorer(weight, context, disiWrappers, disiCount);
       }
 
-      private Scorer docAtATimeScorer(Scorer baseScorer, Weight weight, TermState[] termStates, TermsEnum termsEnum) throws IOException {
+      private Scorer docAtATimeScorer(Weight weight, LeafReaderContext context, TermState[] termStates, TermsEnum termsEnum) throws IOException {
         DisiWrapper[] disiWrappers = new DisiWrapper[terms.length];
         int disiCount = 0;
         for (int i = 0; i < terms.length; i++) {
@@ -167,101 +183,87 @@ public class TermNotInSetQuery extends Query {
           }
         }
 
-        return docAtATimeScorer(baseScorer, weight, disiWrappers, disiCount);
+        return docAtATimeScorer(weight, context, disiWrappers, disiCount);
       }
       
-      private Scorer termAtATimeScorer(Scorer baseScorer, Weight weight, LeafReaderContext context) throws IOException {
-        BitSet excludedDocs = new FixedBitSet(context.reader().maxDoc());
+      private Scorer termAtATimeScorer(Weight weight, LeafReaderContext context) throws IOException {
+        DocIdSetBuilder hits = new DocIdSetBuilder(context.reader().maxDoc());
         boolean foundAtLeastOneTerm = false;
         for (BytesRef term : terms) {
           PostingsEnum postings = context.reader().postings(new Term(field, term), PostingsEnum.NONE);
           if (postings != null) {
             foundAtLeastOneTerm = true;
-            for (int doc = postings.nextDoc(); doc < DocIdSetIterator.NO_MORE_DOCS; doc = postings.nextDoc()) {
-              excludedDocs.set(doc);
-            }
+            hits.add(postings);
           }
         }
 
+        DocIdSetIterator it;
         if (foundAtLeastOneTerm == false) {
-          return baseScorer;
+          it = DocIdSetIterator.empty();
+        } else {
+          it = hits.build().iterator();
         }
 
-        return new FilterScorer(weight, baseScorer) {
-          @Override
-          public TwoPhaseIterator twoPhaseIterator() {
-            TwoPhaseIterator baseTwoPhase = baseScorer.twoPhaseIterator();
-            final DocIdSetIterator baseApproximation;
-            if (baseTwoPhase == null) {
-              baseApproximation = baseScorer.iterator();
-            } else {
-              baseApproximation = baseTwoPhase.approximation();
-            }
-
-            return new TwoPhaseIterator(baseApproximation) {
-              @Override
-              public boolean matches() throws IOException {
-                if (excludedDocs.get(docID())) {
-                  return false;
-                }
-
-                return baseTwoPhase == null || baseTwoPhase.matches();
-              }
-
-              @Override
-              public float matchCost() {
-                return 0;
-              }
-            };
-          }
-        };
+        return new ConstantScoreScorer(weight, score(), scoreMode, it);
       }
 
-      private static Scorer docAtATimeScorer(Scorer baseScorer, Weight weight, DisiWrapper[] disiWrappers, int disiCount) {
+      private Scorer docAtATimeScorer(Weight weight, LeafReaderContext context, DisiWrapper[] disiWrappers, int disiCount) {
+        final DocIdSetIterator it;
         if (disiCount == 0) {
-          return baseScorer;
-        }
+          it = DocIdSetIterator.empty();
+        } else if (disiCount == 1) {
+          it = disiWrappers[0].iterator;
+        } else {
+          DisiPriorityQueue pq = new DisiPriorityQueue(disiCount);
+          pq.addAll(disiWrappers, 0, disiCount);
 
-        DisiPriorityQueue pq = new DisiPriorityQueue(disiCount);
-        pq.addAll(disiWrappers, 0, disiCount);
-        
-        return new FilterScorer(weight, baseScorer) {
-          @Override
-          public TwoPhaseIterator twoPhaseIterator() {
-            TwoPhaseIterator baseTwoPhase = baseScorer.twoPhaseIterator();
-            final DocIdSetIterator baseApproximation;
-            if (baseTwoPhase == null) {
-              baseApproximation = baseScorer.iterator();
-            } else {
-              baseApproximation = baseTwoPhase.approximation();
+          final long cost = Arrays.stream(disiWrappers).mapToLong(e -> e.cost).sum();
+
+          it = new DocIdSetIterator() {
+            private int docID = -1;
+
+            @Override
+            public int docID() {
+              return docID;
             }
 
-            return new TwoPhaseIterator(baseApproximation) {
-              @Override
-              public boolean matches() throws IOException {
-                int doc = docID();
-                DisiWrapper top = pq.top();
-                while (top.doc < doc) {
-                  top.doc = top.iterator.advance(doc);
-                  if (top.doc == doc) {
-                    pq.updateTop();
-                    return false;
-                  }
-                  top = pq.updateTop();
-                }
-                return top.doc != doc && (baseTwoPhase == null || baseTwoPhase.matches());
-              }
+            @Override
+            public int nextDoc() throws IOException {
+              return doNext(docID + 1);
+            }
 
-              @Override
-              public float matchCost() {
-                return pq.size();
-              }
-            };
-          }
-        };
+            @Override
+            public int advance(int target) throws IOException {
+              return doNext(target);
+            }
+
+            private int doNext(int target) throws IOException {
+              DisiWrapper top = pq.top();
+              do {
+                top.doc = top.approximation.advance(target);
+                if (top.doc == target) {
+                  pq.updateTop();
+                  docID = target;
+                  return docID;
+                }
+                top = pq.updateTop();
+              } while (top.doc < target);
+
+              docID = top.doc;
+              return docID;
+            }
+
+            @Override
+            public long cost() {
+              return cost;
+            }
+          };
+        }
+
+        return new ConstantScoreScorer(weight, score(), scoreMode, it);
       }
       
-      private Scorer docValuesScorer(Scorer baseScorer, Weight weight, LeafReaderContext context) throws IOException {
+      private Scorer docValuesScorer(Weight weight, LeafReaderContext context) throws IOException {
         SortedSetDocValues dv = DocValues.getSortedSet(context.reader(), field);
 
         boolean hasAtLeastOneTerm = false;
@@ -275,46 +277,32 @@ public class TermNotInSetQuery extends Query {
         }
 
         if (hasAtLeastOneTerm == false) {
-          return baseScorer;
+          return new ConstantScoreScorer(weight, score(), scoreMode, DocIdSetIterator.empty());
         }
 
-        return new FilterScorer(weight, baseScorer) {
+        TwoPhaseIterator it = new TwoPhaseIterator(dv) {
           @Override
-          public TwoPhaseIterator twoPhaseIterator() {
-            TwoPhaseIterator baseTwoPhase = baseScorer.twoPhaseIterator();
-            final DocIdSetIterator baseApproximation;
-            if (baseTwoPhase == null) {
-              baseApproximation = baseScorer.iterator();
-            } else {
-              baseApproximation = baseTwoPhase.approximation();
+          public boolean matches() throws IOException {
+            for (int i = 0; i < dv.docValueCount(); i++) {
+              if (ords.get(dv.nextOrd())) {
+                return true;
+              }
             }
+            return false;
+          }
 
-            return new TwoPhaseIterator(baseApproximation) {
-              @Override
-              public boolean matches() throws IOException {
-                if (dv.advanceExact(docID()) == false) {
-                  return baseTwoPhase == null || baseTwoPhase.matches();
-                }
-                for (int i = 0; i < dv.docValueCount(); i++) {
-                  if (ords.get(dv.nextOrd())) {
-                    return false;
-                  }
-                }
-                return baseTwoPhase == null || baseTwoPhase.matches();
-              }
-
-              @Override
-              public float matchCost() {
-                return 1f;
-              }
-            };
+          @Override
+          public float matchCost() {
+            return 1f;
           }
         };
+
+        return new ConstantScoreScorer(weight, score(), scoreMode, it);
       }
       
       @Override
       public boolean isCacheable(LeafReaderContext ctx) {
-        return false;
+        return DocValues.isCacheable(ctx, field);
       }
     };
   }
@@ -342,52 +330,5 @@ public class TermNotInSetQuery extends Query {
   @Override
   public int hashCode() {
     return 0;
-  }
-
-  private static abstract class FilterScorer extends Scorer {
-    private final Scorer in;
-
-    FilterScorer(Weight weight, Scorer in) {
-      super(weight);
-      this.in = in;
-    }
-
-    @Override
-    public abstract TwoPhaseIterator twoPhaseIterator();
-
-    @Override
-    public DocIdSetIterator iterator() {
-      return TwoPhaseIterator.asDocIdSetIterator(twoPhaseIterator());
-    }
-
-    @Override
-    public float getMaxScore(int upTo) throws IOException {
-      return in.getMaxScore(upTo);
-    }
-
-    @Override
-    public float score() throws IOException {
-      return in.score();
-    }
-
-    @Override
-    public int docID() {
-      return in.docID();
-    }
-
-    @Override
-    public int advanceShallow(int target) throws IOException {
-      return in.advanceShallow(target);
-    }
-
-    @Override
-    public void setMinCompetitiveScore(float minScore) throws IOException {
-      in.setMinCompetitiveScore(minScore);
-    }
-
-    @Override
-    public Collection<ChildScorable> getChildren() throws IOException {
-      return in.getChildren();
-    }
   }
 }

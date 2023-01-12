@@ -37,7 +37,7 @@ public class TestTermInSetQuery extends LuceneTestCase {
       }
       Directory dir = newDirectory();
       RandomIndexWriter iw = new RandomIndexWriter(random(), dir);
-      final int numDocs = atLeast(100);
+      final int numDocs = atLeast(10000);
       for (int i = 0; i < numDocs; ++i) {
         Document doc = new Document();
         final BytesRef term = allTerms.get(random().nextInt(allTerms.size()));

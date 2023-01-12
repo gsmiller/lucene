@@ -7,12 +7,17 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Objects;
 import java.util.Set;
+
+import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.NumericDocValues;
 import org.apache.lucene.index.PostingsEnum;
+import org.apache.lucene.index.SortedDocValues;
+import org.apache.lucene.index.SortedNumericDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.TermState;
@@ -101,19 +106,19 @@ public class TermInSetQuery extends Query {
             assert terms.length > 1;
 
             // If there are no doc values indexed, we have to use a postings-based approach:
-            if (fi.getDocValuesType() != DocValuesType.SORTED_SET
-                && fi.getDocValuesType() != DocValuesType.SORTED) {
+            DocValuesType dvType = fi.getDocValuesType();
+            if (dvType == DocValuesType.NONE) {
               return postingsScorer(reader);
             }
 
             if (terms.length > J * leadCost) {
               // TODO: The actual term count could be lower if there are terms not in the segment.
               // If the number of terms is > the number of candidates, a DV should perform better:
-              return docValuesScorer(context);
+              return docValuesScorer(dvType, reader);
             } else {
               Terms t = reader.terms(field);
               if (t == null) {
-                return docValuesScorer(context);
+                return docValuesScorer(dvType, reader);
               }
 
               // Assuming documents are randomly distributed (note: they may not be), as soon as
@@ -130,7 +135,7 @@ public class TermInSetQuery extends Query {
               double avgTermAdvances = Math.min(leadCost, (double) t.getSumDocFreq() / t.size());
               double expectedTotalAdvances = avgTermAdvances * terms.length;
               if (expectedTotalAdvances > leadCost) { // TODO: tuning coefficient?
-                return docValuesScorer(context);
+                return docValuesScorer(dvType, reader);
               }
 
               // At this point, it seems that using a postings approach may be best, so we'll
@@ -185,7 +190,7 @@ public class TermInSetQuery extends Query {
               // Heuristic that determines whether-or-not to use DV or postings. Based on ratio
               // of total density to candidate size:
               if (totalDensity > (K * leadCost)) {
-                return docValuesScorer(context);
+                return docValuesScorer(dvType, reader);
               } else {
                 return postingsScorer(context.reader(), termsEnum, termStates);
               }
@@ -490,9 +495,65 @@ public class TermInSetQuery extends Query {
         return scorerFor(it);
       }
 
-      private Scorer docValuesScorer(LeafReaderContext context) throws IOException {
-        SortedSetDocValues dv = DocValues.getSortedSet(context.reader(), field);
+      private Scorer docValuesScorer(DocValuesType dvType, LeafReader reader) throws IOException {
+        switch (dvType) {
+          case SORTED:
+          case SORTED_SET:
+            SortedSetDocValues ssdv = DocValues.getSortedSet(reader, field);
+            SortedDocValues sdv = DocValues.unwrapSingleton(ssdv);
+            if (sdv != null) {
+              return docValueScorer(sdv);
+            } else {
+              return docValueScorer(ssdv);
+            }
+          case BINARY:
+            return docValueScorer(DocValues.getBinary(reader, field));
+          case NUMERIC:
+          case SORTED_NUMERIC:
+            SortedNumericDocValues sndv = DocValues.getSortedNumeric(reader, field);
+            NumericDocValues ndv = DocValues.unwrapSingleton(sndv);
+            if (ndv != null) {
+              return docValueScorer(ndv);
+            } else {
+              return docValueScorer(sndv);
+            }
+          default:
+            throw new IllegalStateException("docValuesScorer should never be used when there are no indexed doc values");
+        }
+      }
 
+      private Scorer docValueScorer(SortedDocValues dv) throws IOException {
+        boolean hasAtLeastOneTerm = false;
+        LongBitSet ords = new LongBitSet(dv.getValueCount());
+        for (BytesRef term : terms) {
+          long ord = dv.lookupTerm(term);
+          if (ord >= 0) {
+            ords.set(ord);
+            hasAtLeastOneTerm = true;
+          }
+        }
+
+        if (hasAtLeastOneTerm == false) {
+          return emptyScorer();
+        }
+
+        TwoPhaseIterator it =
+            new TwoPhaseIterator(dv) {
+              @Override
+              public boolean matches() throws IOException {
+                return ords.get(dv.ordValue());
+              }
+
+              @Override
+              public float matchCost() {
+                return 1f;
+              }
+            };
+
+        return scorerFor(it);
+      }
+
+      private Scorer docValueScorer(SortedSetDocValues dv) throws IOException {
         boolean hasAtLeastOneTerm = false;
         LongBitSet ords = new LongBitSet(dv.getValueCount());
         for (BytesRef term : terms) {
@@ -526,6 +587,88 @@ public class TermInSetQuery extends Query {
             };
 
         return scorerFor(it);
+      }
+
+      private Scorer docValueScorer(BinaryDocValues dv) {
+        Set<BytesRef> termSet = new HashSet<>(terms.length);
+        termSet.addAll(Arrays.asList(terms));
+
+        TwoPhaseIterator it = new TwoPhaseIterator(dv) {
+          @Override
+          public boolean matches() throws IOException {
+            return termSet.contains(dv.binaryValue());
+          }
+
+          @Override
+          public float matchCost() {
+            return 1f;
+          }
+        };
+
+        return scorerFor(it);
+      }
+
+      private Scorer docValueScorer(NumericDocValues dv) {
+        LongBitSet vals = numericTermSet();
+
+        TwoPhaseIterator it = new TwoPhaseIterator(dv) {
+          @Override
+          public boolean matches() throws IOException {
+            return vals.get(dv.longValue());
+          }
+
+          @Override
+          public float matchCost() {
+            return 1f;
+          }
+        };
+
+        return scorerFor(it);
+      }
+
+      private Scorer docValueScorer(SortedNumericDocValues dv) {
+        LongBitSet vals = numericTermSet();
+
+        TwoPhaseIterator it = new TwoPhaseIterator(dv) {
+          @Override
+          public boolean matches() throws IOException {
+            for (int i = 0; i < dv.docValueCount(); i++) {
+              if (vals.get(dv.nextValue())) {
+                return true;
+              }
+            }
+            return false;
+          }
+
+          @Override
+          public float matchCost() {
+            return 1f;
+          }
+        };
+
+        return scorerFor(it);
+      }
+
+      private LongBitSet numericTermSet() {
+        long max = Long.MIN_VALUE;
+        long[] valsArray = new long[terms.length];
+        int valCount = 0;
+        for (BytesRef term : terms) {
+          try {
+            long val = Long.parseLong(Term.toString(term));
+            max = Math.max(max, val);
+            valsArray[valCount] = val;
+            valCount++;
+          } catch (NumberFormatException e) {
+            // skip
+          }
+        }
+        LongBitSet vals = new LongBitSet(max);
+        for (int i = 0; i < valCount; i++) {
+          vals.set(valsArray[i]);
+        }
+
+        return vals;
       }
 
       @Override

@@ -18,7 +18,6 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.index.TermState;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
-import org.apache.lucene.search.ConjunctionUtils;
 import org.apache.lucene.search.ConstantScoreScorer;
 import org.apache.lucene.search.ConstantScoreWeight;
 import org.apache.lucene.search.DisiPriorityQueue;
@@ -128,7 +127,8 @@ public class TermInSetQuery extends Query {
               // TODO: Can we check this earlier with field infos?
               Terms t = reader.terms(field);
               if (t == null) {
-                return new ConstantScoreScorer(weight, score(), scoreMode, DocIdSetIterator.empty());
+                return new ConstantScoreScorer(
+                    weight, score(), scoreMode, DocIdSetIterator.empty());
               }
 
               // Compute the "total density" of all term postings. This is wasted term-seeking work
@@ -162,17 +162,20 @@ public class TermInSetQuery extends Query {
                 foundTermCount++;
               }
 
-              // We have some new information about how many terms were actually found in the segment,
+              // We have some new information about how many terms were actually found in the
+              // segment,
               // so make some special-case decisions based on that new information:
               if (foundTermCount == 0) {
-                return new ConstantScoreScorer(weight, score(), scoreMode, DocIdSetIterator.empty());
+                return new ConstantScoreScorer(
+                    weight, score(), scoreMode, DocIdSetIterator.empty());
               } else if (foundTermCount == 1) {
                 termsEnum.seekExact(lastTerm, lastTermState);
                 PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
                 return new ConstantScoreScorer(weight, score(), scoreMode, postings);
               }
 
-              // TODO: Should we re-check a term count heuristic here now that we know how many terms are actually in the segment?
+              // TODO: Should we re-check a term count heuristic here now that we know how many
+              // terms are actually in the segment?
               // Heuristic that determines whether-or-not to use DV or postings. Based on ratio
               // of total density to candidate size:
               if (totalDensity >= (K * leadCost)) {
@@ -293,7 +296,9 @@ public class TermInSetQuery extends Query {
         return postingsScorer(weight, reader, termsEnum, termStates);
       }
 
-      private Scorer postingsScorer(Weight weight, LeafReader reader, TermsEnum termsEnum, TermState... termStates) throws IOException {
+      private Scorer postingsScorer(
+          Weight weight, LeafReader reader, TermsEnum termsEnum, TermState... termStates)
+          throws IOException {
         int foundTermCount = 0;
         int disiWrapperCount = 0;
         DisiWrapper[] disiWrappers = new DisiWrapper[terms.length];
@@ -340,45 +345,46 @@ public class TermInSetQuery extends Query {
           }
           final long cost = c;
 
-          it = new DocIdSetIterator() {
-            private int docID = -1;
+          it =
+              new DocIdSetIterator() {
+                private int docID = -1;
 
-            @Override
-            public int docID() {
-              return docID;
-            }
-
-            @Override
-            public int nextDoc() throws IOException {
-              return doNext(docID + 1);
-            }
-
-            @Override
-            public int advance(int target) throws IOException {
-              return doNext(target);
-            }
-
-            private int doNext(int target) throws IOException {
-              DisiWrapper top = pq.top();
-              do {
-                top.doc = top.approximation.advance(target);
-                if (top.doc == target) {
-                  pq.updateTop();
-                  docID = target;
+                @Override
+                public int docID() {
                   return docID;
                 }
-                top = pq.updateTop();
-              } while (top.doc < target);
 
-              docID = top.doc;
-              return docID;
-            }
+                @Override
+                public int nextDoc() throws IOException {
+                  return doNext(docID + 1);
+                }
 
-            @Override
-            public long cost() {
-              return cost;
-            }
-          };
+                @Override
+                public int advance(int target) throws IOException {
+                  return doNext(target);
+                }
+
+                private int doNext(int target) throws IOException {
+                  DisiWrapper top = pq.top();
+                  do {
+                    top.doc = top.approximation.advance(target);
+                    if (top.doc == target) {
+                      pq.updateTop();
+                      docID = target;
+                      return docID;
+                    }
+                    top = pq.updateTop();
+                  } while (top.doc < target);
+
+                  docID = top.doc;
+                  return docID;
+                }
+
+                @Override
+                public long cost() {
+                  return cost;
+                }
+              };
         }
 
         return new ConstantScoreScorer(weight, score(), scoreMode, it);

@@ -1,5 +1,8 @@
 package org.apache.lucene.sandbox.queries;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.SortedDocValuesField;
@@ -9,7 +12,6 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.BoostQuery;
-import org.apache.lucene.search.ConstantScoreQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.Sort;
@@ -22,13 +24,9 @@ import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IOUtils;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-
 public class TestTermInSetQuery extends LuceneTestCase {
   public void testDuel() throws IOException {
-    final int iters = atLeast(2);
+    final int iters = atLeast(10);
     final String field = "f";
     for (int iter = 0; iter < iters; ++iter) {
       final List<BytesRef> allTerms = new ArrayList<>();
@@ -76,27 +74,17 @@ public class TestTermInSetQuery extends LuceneTestCase {
         Query q1 = new org.apache.lucene.search.TermInSetQuery(field, queryTerms);
         Query q2 = new TermInSetQuery(field, queryTerms);
 
-//        if (random().nextBoolean()) {
-//          Query restrictive = new TermQuery(new Term("small", "a"));
-//          BooleanQuery.Builder bq = new BooleanQuery.Builder();
-//          bq.add(restrictive, BooleanClause.Occur.MUST);
-//          bq.add(q1, BooleanClause.Occur.MUST);
-//          q1 = bq.build();
-//          bq = new BooleanQuery.Builder();
-//          bq.add(restrictive, BooleanClause.Occur.MUST);
-//          bq.add(q2, BooleanClause.Occur.MUST);
-//          q2 = bq.build();
-//        }
-
-        Query restrictive = new TermQuery(new Term("small", "a"));
-        BooleanQuery.Builder bq = new BooleanQuery.Builder();
-        bq.add(restrictive, BooleanClause.Occur.MUST);
-        bq.add(q1, BooleanClause.Occur.MUST);
-        q1 = bq.build();
-        bq = new BooleanQuery.Builder();
-        bq.add(restrictive, BooleanClause.Occur.MUST);
-        bq.add(q2, BooleanClause.Occur.MUST);
-        q2 = bq.build();
+        if (random().nextBoolean()) {
+          Query restrictive = new TermQuery(new Term("small", "a"));
+          BooleanQuery.Builder bq = new BooleanQuery.Builder();
+          bq.add(restrictive, BooleanClause.Occur.MUST);
+          bq.add(q1, BooleanClause.Occur.MUST);
+          q1 = bq.build();
+          bq = new BooleanQuery.Builder();
+          bq.add(restrictive, BooleanClause.Occur.MUST);
+          bq.add(q2, BooleanClause.Occur.MUST);
+          q2 = bq.build();
+        }
 
         assertSameMatches(searcher, new BoostQuery(q1, boost), new BoostQuery(q2, boost), true);
       }

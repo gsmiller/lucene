@@ -41,12 +41,14 @@ import org.apache.lucene.search.Weight;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.DocIdSetBuilder;
 import org.apache.lucene.util.LongBitSet;
+import org.apache.lucene.util.PriorityQueue;
 
 public class TermInSetQuery extends Query {
   // TODO: tune
   private static final double J = 1.0;
   private static final double K = 1.0;
   private static final int L = 512;
+  private static final int M = Math.min(IndexSearcher.getMaxClauseCount(), 128);
 
   private final String field;
   private final BytesRef[] terms;
@@ -405,8 +407,12 @@ public class TermInSetQuery extends Query {
       private Scorer postingsScorer(LeafReader reader, TermsEnum termsEnum, TermState... termStates)
           throws IOException {
         int foundTermCount = 0;
-        int disiWrapperCount = 0;
-        DisiWrapper[] disiWrappers = new DisiWrapper[terms.length];
+        PriorityQueue<DisiWrapper> unprocessedPostings = new PriorityQueue<>(M) {
+          @Override
+          protected boolean lessThan(DisiWrapper a, DisiWrapper b) {
+            return a.cost < b.cost;
+          }
+        };
         DocIdSetBuilder disBuilder = new DocIdSetBuilder(reader.maxDoc());
         PostingsEnum reuse = null;
         for (int i = 0; i < terms.length; i++) {
@@ -421,33 +427,43 @@ public class TermInSetQuery extends Query {
             disBuilder.add(termsEnum.postings(reuse, PostingsEnum.NONE));
           } else {
             PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
-            disiWrappers[disiWrapperCount] = new DisiWrapper(postings);
-            disiWrapperCount++;
+            DisiWrapper evicted = unprocessedPostings.insertWithOverflow(new DisiWrapper(postings));
+            if (evicted != null) {
+              disBuilder.add(evicted.iterator);
+            }
           }
         }
-        assert disiWrapperCount <= foundTermCount;
+        int unprocessedPostingsCount = unprocessedPostings.size();
+        assert unprocessedPostingsCount <= foundTermCount;
 
         final DocIdSetIterator it;
         if (foundTermCount == 0) {
           it = DocIdSetIterator.empty();
-        } else if (foundTermCount == 1 && disiWrapperCount == 1) {
-          it = disiWrappers[0].iterator;
-        } else if (disiWrapperCount == 0) {
+        } else if (unprocessedPostingsCount == 0) {
           it = disBuilder.build().iterator();
+        } else if (foundTermCount == 1 && unprocessedPostingsCount == 1) {
+          it = unprocessedPostings.top().iterator;
         } else {
-          if (disiWrapperCount != foundTermCount) {
-            DocIdSetIterator prePopulated = disBuilder.build().iterator();
-            disiWrappers[disiWrapperCount] = new DisiWrapper(prePopulated);
-            disiWrapperCount++;
+          int iteratorCount = unprocessedPostingsCount;
+          DocIdSetIterator prePopulated = null;
+          if (unprocessedPostingsCount < foundTermCount) {
+            prePopulated = disBuilder.build().iterator();
+            iteratorCount++;
           }
-
-          DisiPriorityQueue pq = new DisiPriorityQueue(disiWrapperCount);
-          pq.addAll(disiWrappers, 0, disiWrapperCount);
 
           long c = 0;
-          for (int i = 0; i < disiWrapperCount; i++) {
-            c += disiWrappers[i].cost;
+          DisiPriorityQueue pq = new DisiPriorityQueue(iteratorCount);
+          for (DisiWrapper w : unprocessedPostings) {
+            // TODO: could we have an addAll that takes another pq maybe?
+            pq.add(w);
+            c += w.cost;
           }
+
+          if (prePopulated != null) {
+            pq.add(new DisiWrapper(prePopulated));
+            c += prePopulated.cost();
+          }
+
           final long cost = c;
 
           it =

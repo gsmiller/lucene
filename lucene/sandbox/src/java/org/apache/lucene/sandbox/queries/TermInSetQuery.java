@@ -49,7 +49,7 @@ public class TermInSetQuery extends Query {
   private static final double J = 1.0;
   private static final double K = 1.0;
   private static final int L = 512;
-  private static final int M = Math.min(IndexSearcher.getMaxClauseCount(), 128);
+  private static final int M = Math.min(IndexSearcher.getMaxClauseCount(), 64);
 
   private final String field;
   private final BytesRef[] terms;
@@ -140,6 +140,9 @@ public class TermInSetQuery extends Query {
               if (expectedTotalAdvances > leadCost) { // TODO: tuning coefficient?
                 return docValuesScorer(dvType, reader);
               }
+
+              // TODO: #docFreq isn't free. Maybe this isn't worth it? Maybe we should just go
+              // directly to using postings at this point?
 
               // At this point, it seems that using a postings approach may be best, so we'll
               // actually seek to all the terms and gather more accurate index statistics and make
@@ -242,149 +245,17 @@ public class TermInSetQuery extends Query {
         return new ConstantScoreScorer(this, score(), scoreMode, it);
       }
 
-      private Scorer docAtATimeScorer(Weight weight, LeafReaderContext context) throws IOException {
-        Terms t = context.reader().terms(field);
-        TermsEnum termsEnum = t.iterator();
-        int fieldDocCount = t.getDocCount();
-
-        DisiWrapper[] disiWrappers = new DisiWrapper[terms.length];
-        int disiCount = 0;
-        for (BytesRef term : terms) {
-          if (termsEnum.seekExact(term)) {
-            PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
-            DisiWrapper disiWrapper = new DisiWrapper(postings);
-            if (fieldDocCount == termsEnum.docFreq()) {
-              return docAtATimeScorer(weight, 1, disiWrapper);
-            }
-            disiWrappers[disiCount] = disiWrapper;
-            disiCount++;
-          }
-        }
-
-        return docAtATimeScorer(weight, disiCount, disiWrappers);
-      }
-
-      private Scorer docAtATimeScorer(Weight weight, TermsEnum termsEnum, TermState... termStates)
-          throws IOException {
-        DisiWrapper[] disiWrappers = new DisiWrapper[terms.length];
-        int disiCount = 0;
-        for (int i = 0; i < terms.length; i++) {
-          TermState termState = termStates[i];
-          if (termState != null) {
-            termsEnum.seekExact(terms[i], termState);
-            PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
-            disiWrappers[disiCount] = new DisiWrapper(postings);
-            disiCount++;
-          }
-        }
-
-        return docAtATimeScorer(weight, disiCount, disiWrappers);
-      }
-
-      private Scorer docAtATimeScorer(Weight weight, int disiCount, DisiWrapper... disiWrappers) {
-        final DocIdSetIterator it;
-        if (disiCount == 0) {
-          it = DocIdSetIterator.empty();
-        } else if (disiCount == 1) {
-          it = disiWrappers[0].iterator;
-        } else {
-          DisiPriorityQueue pq = new DisiPriorityQueue(disiCount);
-          pq.addAll(disiWrappers, 0, disiCount);
-
-          long c = 0;
-          for (int i = 0; i < disiCount; i++) {
-            c += disiWrappers[i].cost;
-          }
-          final long cost = c;
-
-          it =
-              new DocIdSetIterator() {
-                private int docID = -1;
-
-                @Override
-                public int docID() {
-                  return docID;
-                }
-
-                @Override
-                public int nextDoc() throws IOException {
-                  return doNext(docID + 1);
-                }
-
-                @Override
-                public int advance(int target) throws IOException {
-                  return doNext(target);
-                }
-
-                private int doNext(int target) throws IOException {
-                  DisiWrapper top = pq.top();
-                  do {
-                    top.doc = top.approximation.advance(target);
-                    if (top.doc == target) {
-                      pq.updateTop();
-                      docID = target;
-                      return docID;
-                    }
-                    top = pq.updateTop();
-                  } while (top.doc < target);
-
-                  docID = top.doc;
-                  return docID;
-                }
-
-                @Override
-                public long cost() {
-                  return cost;
-                }
-              };
-        }
-
-        return new ConstantScoreScorer(weight, score(), scoreMode, it);
-      }
-
-      private Scorer termAtATimeScorer(Weight weight, LeafReaderContext context)
-          throws IOException {
-        LeafReader reader = context.reader();
-
-        Terms t = reader.terms(field);
-        TermsEnum termsEnum = t.iterator();
-        int fieldDocCount = t.getDocCount();
-
-        DocIdSetIterator it = null;
-        DocIdSetBuilder hits = new DocIdSetBuilder(reader.maxDoc());
-        boolean foundAtLeastOneTerm = false;
-        PostingsEnum postings = null;
-        for (BytesRef term : terms) {
-          if (termsEnum.seekExact(term)) {
-            foundAtLeastOneTerm = true;
-            postings = termsEnum.postings(postings, PostingsEnum.NONE);
-            if (fieldDocCount == termsEnum.docFreq()) {
-              it = postings;
-              break;
-            }
-            hits.add(postings);
-          }
-        }
-
-        if (it == null) {
-          if (foundAtLeastOneTerm == false) {
-            it = DocIdSetIterator.empty();
-          } else {
-            it = hits.build().iterator();
-          }
-        }
-
-        return new ConstantScoreScorer(weight, score(), scoreMode, it);
-      }
-
       private Scorer postingsScorer(LeafReader reader) throws IOException {
         Terms t = reader.terms(field);
         if (t == null) {
           return emptyScorer();
         }
 
-        TermsEnum termsEnum = t.iterator();
         int fieldDocCount = t.getDocCount();
+        double avgPostingsLength = (double) t.getSumDocFreq() / t.size();
+        boolean checkForFullyDense = avgPostingsLength > (fieldDocCount * 0.75);
+
+        TermsEnum termsEnum = t.iterator();
         TermState[] termStates = new TermState[terms.length];
         for (int i = 0; i < terms.length; i++) {
           BytesRef term = terms[i];
@@ -392,7 +263,8 @@ public class TermInSetQuery extends Query {
             continue;
           }
 
-          if (fieldDocCount == termsEnum.docFreq()) {
+          // TODO: #docFreq isn't free. Maybe this isn't worth it?
+          if (checkForFullyDense && fieldDocCount == termsEnum.docFreq()) {
             PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
             return scorerFor(postings);
           }

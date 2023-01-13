@@ -1,13 +1,14 @@
 package org.apache.lucene.sandbox.queries;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-
 import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.DocValuesType;
@@ -407,13 +408,9 @@ public class TermInSetQuery extends Query {
       private Scorer postingsScorer(LeafReader reader, TermsEnum termsEnum, TermState... termStates)
           throws IOException {
         int foundTermCount = 0;
-        PriorityQueue<DisiWrapper> unprocessedPostings = new PriorityQueue<>(M) {
-          @Override
-          protected boolean lessThan(DisiWrapper a, DisiWrapper b) {
-            return a.cost < b.cost;
-          }
-        };
-        DocIdSetBuilder disBuilder = new DocIdSetBuilder(reader.maxDoc());
+        boolean hasProcessedPostings = false;
+        List<DisiWrapper> unprocessedPostings = new ArrayList<>(terms.length);
+        DocIdSetBuilder processedPostings = new DocIdSetBuilder(reader.maxDoc());
         PostingsEnum reuse = null;
         for (int i = 0; i < terms.length; i++) {
           TermState termState = termStates[i];
@@ -424,89 +421,109 @@ public class TermInSetQuery extends Query {
           foundTermCount++;
           termsEnum.seekExact(terms[i], termState);
           if (termsEnum.docFreq() < L) { // TODO: should this be a ratio to candidate size?
-            disBuilder.add(termsEnum.postings(reuse, PostingsEnum.NONE));
+            processedPostings.add(termsEnum.postings(reuse, PostingsEnum.NONE));
+            hasProcessedPostings = true;
           } else {
             PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
-            DisiWrapper evicted = unprocessedPostings.insertWithOverflow(new DisiWrapper(postings));
-            if (evicted != null) {
-              disBuilder.add(evicted.iterator);
-            }
+            unprocessedPostings.add(new DisiWrapper(postings));
           }
         }
-        int unprocessedPostingsCount = unprocessedPostings.size();
-        assert unprocessedPostingsCount <= foundTermCount;
+        assert unprocessedPostings.size() <= foundTermCount;
 
-        final DocIdSetIterator it;
         if (foundTermCount == 0) {
-          it = DocIdSetIterator.empty();
-        } else if (unprocessedPostingsCount == 0) {
-          it = disBuilder.build().iterator();
-        } else if (foundTermCount == 1 && unprocessedPostingsCount == 1) {
-          it = unprocessedPostings.top().iterator;
+          return emptyScorer();
+        }
+
+        if (unprocessedPostings.isEmpty()) {
+          assert hasProcessedPostings;
+          return scorerFor(processedPostings.build().iterator());
+        }
+
+        if (foundTermCount == 1) {
+          assert unprocessedPostings.size() == 1 && hasProcessedPostings == false;
+          return scorerFor(unprocessedPostings.get(0).iterator);
+        }
+
+        int postingsCount = Math.min(unprocessedPostings.size(), M);
+        Iterator<DisiWrapper> unprocessedPostingsIt;
+        if (unprocessedPostings.size() <= M) {
+          unprocessedPostingsIt = unprocessedPostings.iterator();
         } else {
-          int iteratorCount = unprocessedPostingsCount;
-          DocIdSetIterator prePopulated = null;
-          if (unprocessedPostingsCount < foundTermCount) {
-            prePopulated = disBuilder.build().iterator();
-            iteratorCount++;
-          }
-
-          long c = 0;
-          DisiPriorityQueue pq = new DisiPriorityQueue(iteratorCount);
-          for (DisiWrapper w : unprocessedPostings) {
-            // TODO: could we have an addAll that takes another pq maybe?
-            pq.add(w);
-            c += w.cost;
-          }
-
-          if (prePopulated != null) {
-            pq.add(new DisiWrapper(prePopulated));
-            c += prePopulated.cost();
-          }
-
-          final long cost = c;
-
-          it =
-              new DocIdSetIterator() {
-                private int docID = -1;
-
+          PriorityQueue<DisiWrapper> pq =
+              new PriorityQueue<>(M) {
                 @Override
-                public int docID() {
-                  return docID;
-                }
-
-                @Override
-                public int nextDoc() throws IOException {
-                  return doNext(docID + 1);
-                }
-
-                @Override
-                public int advance(int target) throws IOException {
-                  return doNext(target);
-                }
-
-                private int doNext(int target) throws IOException {
-                  DisiWrapper top = pq.top();
-                  do {
-                    top.doc = top.approximation.advance(target);
-                    if (top.doc == target) {
-                      pq.updateTop();
-                      docID = target;
-                      return docID;
-                    }
-                    top = pq.updateTop();
-                  } while (top.doc < target);
-
-                  docID = top.doc;
-                  return docID;
-                }
-
-                @Override
-                public long cost() {
-                  return cost;
+                protected boolean lessThan(DisiWrapper a, DisiWrapper b) {
+                  return a.cost < b.cost;
                 }
               };
+          for (DisiWrapper w : unprocessedPostings) {
+            DisiWrapper evicted = pq.insertWithOverflow(w);
+            if (evicted != null) {
+              processedPostings.add(evicted.iterator);
+              hasProcessedPostings = true;
+            }
+          }
+          unprocessedPostingsIt = pq.iterator();
         }
+
+        if (hasProcessedPostings) {
+          postingsCount++;
+        }
+
+        long c = 0;
+        DisiPriorityQueue pq = new DisiPriorityQueue(postingsCount);
+        while (unprocessedPostingsIt.hasNext()) {
+          DisiWrapper w = unprocessedPostingsIt.next();
+          pq.add(w);
+          c += w.cost;
+        }
+        if (hasProcessedPostings) {
+          DisiWrapper w = new DisiWrapper(processedPostings.build().iterator());
+          pq.add(w);
+          c += w.cost;
+        }
+        final long cost = c;
+
+        DocIdSetIterator it =
+            new DocIdSetIterator() {
+              private int docID = -1;
+
+              @Override
+              public int docID() {
+                return docID;
+              }
+
+              @Override
+              public int nextDoc() throws IOException {
+                return doNext(docID + 1);
+              }
+
+              @Override
+              public int advance(int target) throws IOException {
+                return doNext(target);
+              }
+
+              private int doNext(int target) throws IOException {
+                DisiWrapper top = pq.top();
+                do {
+                  top.doc = top.approximation.advance(target);
+                  if (top.doc == target) {
+                    pq.updateTop();
+                    docID = target;
+                    return docID;
+                  }
+                  top = pq.updateTop();
+                } while (top.doc < target);
+
+                docID = top.doc;
+                return docID;
+              }
+
+              @Override
+              public long cost() {
+                return cost;
+              }
+            };
 
         return scorerFor(it);
       }
@@ -534,7 +551,8 @@ public class TermInSetQuery extends Query {
               return docValueScorer(sndv);
             }
           default:
-            throw new IllegalStateException("docValuesScorer should never be used when there are no indexed doc values");
+            throw new IllegalStateException(
+                "docValuesScorer should never be used when there are no indexed doc values");
         }
       }
 
@@ -609,17 +627,18 @@ public class TermInSetQuery extends Query {
         Set<BytesRef> termSet = new HashSet<>(terms.length);
         termSet.addAll(Arrays.asList(terms));
 
-        TwoPhaseIterator it = new TwoPhaseIterator(dv) {
-          @Override
-          public boolean matches() throws IOException {
-            return termSet.contains(dv.binaryValue());
-          }
+        TwoPhaseIterator it =
+            new TwoPhaseIterator(dv) {
+              @Override
+              public boolean matches() throws IOException {
+                return termSet.contains(dv.binaryValue());
+              }
 
-          @Override
-          public float matchCost() {
-            return 1f;
-          }
-        };
+              @Override
+              public float matchCost() {
+                return 1f;
+              }
+            };
 
         return scorerFor(it);
       }
@@ -627,17 +646,18 @@ public class TermInSetQuery extends Query {
       private Scorer docValueScorer(NumericDocValues dv) {
         LongBitSet vals = numericTermSet();
 
-        TwoPhaseIterator it = new TwoPhaseIterator(dv) {
-          @Override
-          public boolean matches() throws IOException {
-            return vals.get(dv.longValue());
-          }
+        TwoPhaseIterator it =
+            new TwoPhaseIterator(dv) {
+              @Override
+              public boolean matches() throws IOException {
+                return vals.get(dv.longValue());
+              }
 
-          @Override
-          public float matchCost() {
-            return 1f;
-          }
-        };
+              @Override
+              public float matchCost() {
+                return 1f;
+              }
+            };
 
         return scorerFor(it);
       }
@@ -645,22 +665,23 @@ public class TermInSetQuery extends Query {
       private Scorer docValueScorer(SortedNumericDocValues dv) {
         LongBitSet vals = numericTermSet();
 
-        TwoPhaseIterator it = new TwoPhaseIterator(dv) {
-          @Override
-          public boolean matches() throws IOException {
-            for (int i = 0; i < dv.docValueCount(); i++) {
-              if (vals.get(dv.nextValue())) {
-                return true;
+        TwoPhaseIterator it =
+            new TwoPhaseIterator(dv) {
+              @Override
+              public boolean matches() throws IOException {
+                for (int i = 0; i < dv.docValueCount(); i++) {
+                  if (vals.get(dv.nextValue())) {
+                    return true;
+                  }
+                }
+                return false;
               }
-            }
-            return false;
-          }
 
-          @Override
-          public float matchCost() {
-            return 1f;
-          }
-        };
+              @Override
+              public float matchCost() {
+                return 1f;
+              }
+            };
 
         return scorerFor(it);
       }

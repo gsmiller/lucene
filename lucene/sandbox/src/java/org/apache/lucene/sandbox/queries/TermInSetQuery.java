@@ -408,8 +408,9 @@ public class TermInSetQuery extends Query {
       private Scorer postingsScorer(LeafReader reader, TermsEnum termsEnum, TermState... termStates)
           throws IOException {
         int foundTermCount = 0;
+        int postingsCount = 0;
         boolean hasProcessedPostings = false;
-        List<DisiWrapper> unprocessedPostings = new ArrayList<>(terms.length);
+        DisiWrapper[] postings = new DisiWrapper[terms.length];
         DocIdSetBuilder processedPostings = new DocIdSetBuilder(reader.maxDoc());
         PostingsEnum reuse = null;
         for (int i = 0; i < terms.length; i++) {
@@ -424,31 +425,28 @@ public class TermInSetQuery extends Query {
             processedPostings.add(termsEnum.postings(reuse, PostingsEnum.NONE));
             hasProcessedPostings = true;
           } else {
-            PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
-            unprocessedPostings.add(new DisiWrapper(postings));
+            PostingsEnum p = termsEnum.postings(null, PostingsEnum.NONE);
+            postings[postingsCount] = new DisiWrapper(p);
+            postingsCount++;
           }
         }
-        assert unprocessedPostings.size() <= foundTermCount;
+        assert postingsCount <= foundTermCount;
 
         if (foundTermCount == 0) {
           return emptyScorer();
         }
 
-        if (unprocessedPostings.isEmpty()) {
+        if (postingsCount == 0) {
           assert hasProcessedPostings;
           return scorerFor(processedPostings.build().iterator());
         }
 
         if (foundTermCount == 1) {
-          assert unprocessedPostings.size() == 1 && hasProcessedPostings == false;
-          return scorerFor(unprocessedPostings.get(0).iterator);
+          assert postingsCount == 1 && hasProcessedPostings == false;
+          return scorerFor(postings[0].iterator);
         }
 
-        int postingsCount = Math.min(unprocessedPostings.size(), M);
-        Iterator<DisiWrapper> unprocessedPostingsIt;
-        if (unprocessedPostings.size() <= M) {
-          unprocessedPostingsIt = unprocessedPostings.iterator();
-        } else {
+        if (postingsCount > M) {
           PriorityQueue<DisiWrapper> pq =
               new PriorityQueue<>(M) {
                 @Override
@@ -456,29 +454,29 @@ public class TermInSetQuery extends Query {
                   return a.cost < b.cost;
                 }
               };
-          for (DisiWrapper w : unprocessedPostings) {
+          for (DisiWrapper w : postings) {
             DisiWrapper evicted = pq.insertWithOverflow(w);
             if (evicted != null) {
               processedPostings.add(evicted.iterator);
               hasProcessedPostings = true;
             }
           }
-          unprocessedPostingsIt = pq.iterator();
+          postingsCount = 0;
+          for (DisiWrapper w : postings) {
+            postings[postingsCount] = w;
+            postingsCount++;
+          }
         }
 
         if (hasProcessedPostings) {
+          postings[postingsCount] = new DisiWrapper(processedPostings.build().iterator());
           postingsCount++;
         }
 
-        long c = 0;
         DisiPriorityQueue pq = new DisiPriorityQueue(postingsCount);
-        while (unprocessedPostingsIt.hasNext()) {
-          DisiWrapper w = unprocessedPostingsIt.next();
-          pq.add(w);
-          c += w.cost;
-        }
-        if (hasProcessedPostings) {
-          DisiWrapper w = new DisiWrapper(processedPostings.build().iterator());
+        long c = 0;
+        for (int i = 0; i < postingsCount; i++) {
+          DisiWrapper w = postings[i];
           pq.add(w);
           c += w.cost;
         }

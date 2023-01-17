@@ -23,7 +23,7 @@ import java.util.Collections;
 /**
  * A Scorer for queries with a required subscorer and an excluding (prohibited) sub {@link Scorer}.
  */
-public class ReqExclScorer extends Scorer {
+class ReqExclScorer extends Scorer {
 
   private final Scorer reqScorer;
   // approximations of the scorers, or the scorers themselves if they don't support approximations

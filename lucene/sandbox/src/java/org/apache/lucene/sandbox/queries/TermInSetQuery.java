@@ -210,6 +210,7 @@ public class TermInSetQuery extends Query {
               final long cost;
               Terms indexTerms = reader.terms(field);
               if (indexTerms == null) {
+                // TODO: This needs to work with any DV field type!
                 SortedSetDocValues dv = reader.getSortedSetDocValues(field);
                 if (dv == null) {
                   return 0;

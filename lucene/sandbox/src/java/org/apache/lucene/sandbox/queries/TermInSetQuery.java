@@ -1,24 +1,35 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.apache.lucene.sandbox.queries;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.index.NumericDocValues;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.SortedDocValues;
-import org.apache.lucene.index.SortedNumericDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.TermState;
@@ -45,13 +56,17 @@ import org.apache.lucene.util.LongBitSet;
 import org.apache.lucene.util.PriorityQueue;
 
 public class TermInSetQuery extends Query {
-  // TODO: tune
+  // TODO: tunable coefficients. need to actually tune them (or maybe these are too complex and not
+  // useful)
   private static final double J = 1.0;
   private static final double K = 1.0;
+  // L: postings lists under this threshold will always be "pre-processed" into a bitset
   private static final int L = 512;
+  // M: max number of clauses we'll manage/check during scoring (these remain "unprocessed")
   private static final int M = Math.min(IndexSearcher.getMaxClauseCount(), 64);
 
   private final String field;
+  // TODO: Not particularly memory-efficient; could use prefix-coding here but sorting isn't free
   private final BytesRef[] terms;
   private final int termsHashCode;
 
@@ -70,6 +85,7 @@ public class TermInSetQuery extends Query {
       assert it.hasNext();
       this.terms[i] = it.next();
     }
+    // TODO: compute lazily?
     termsHashCode = Arrays.hashCode(this.terms);
   }
 
@@ -110,18 +126,20 @@ public class TermInSetQuery extends Query {
 
             // If there are no doc values indexed, we have to use a postings-based approach:
             DocValuesType dvType = fi.getDocValuesType();
-            if (dvType == DocValuesType.NONE) {
+            if (dvType != DocValuesType.SORTED && dvType != DocValuesType.SORTED_SET) {
               return postingsScorer(reader);
             }
 
             if (terms.length > J * leadCost) {
-              // TODO: The actual term count could be lower if there are terms not in the segment.
-              // If the number of terms is > the number of candidates, a DV should perform better:
-              return docValuesScorer(dvType, reader);
+              // If the number of terms is > the number of candidates, a DV should perform better.
+              // Note that we don't know the actual number of terms here since terms may not be
+              // found in the segment:
+              return docValuesScorer(reader);
             } else {
               Terms t = reader.terms(field);
               if (t == null) {
-                return docValuesScorer(dvType, reader);
+                // If there are no postings, we have to use doc values:
+                return docValuesScorer(reader);
               }
 
               // Assuming documents are randomly distributed (note: they may not be), as soon as
@@ -138,7 +156,7 @@ public class TermInSetQuery extends Query {
               double avgTermAdvances = Math.min(leadCost, (double) t.getSumDocFreq() / t.size());
               double expectedTotalAdvances = avgTermAdvances * terms.length;
               if (expectedTotalAdvances > leadCost) { // TODO: tuning coefficient?
-                return docValuesScorer(dvType, reader);
+                return docValuesScorer(reader);
               }
 
               // TODO: #docFreq isn't free. Maybe this isn't worth it? Maybe we should just go
@@ -148,12 +166,7 @@ public class TermInSetQuery extends Query {
               // actually seek to all the terms and gather more accurate index statistics and make
               // one more decision. The hope is that we end up using a postings approach since all
               // this term seeking is wasted if we go DV.
-
-              // Compute the "total density" of all term postings. This is wasted term-seeking work
-              // if we end up using DVs. The good news is that the wasted work is proportional to
-              // the number of terms, and if there are lots of terms, we hopefully don't drop into
-              // this condition:
-              long totalDensity = 0;
+              long expectedAdvances = 0;
               int foundTermCount = 0;
               int fieldDocCount = t.getDocCount();
               TermsEnum termsEnum = t.iterator();
@@ -174,15 +187,14 @@ public class TermInSetQuery extends Query {
                 }
 
                 foundTermCount++;
-                totalDensity += Math.min(termDocFreq, leadCost);
+                expectedAdvances += Math.min(termDocFreq, leadCost);
                 lastTermState = termsEnum.termState();
                 lastTerm = term;
                 termStates[i] = lastTermState;
               }
 
               // We have some new information about how many terms were actually found in the
-              // segment,
-              // so make some special-case decisions based on that new information:
+              // segment, so make some special-case decisions based on that new information:
               if (foundTermCount == 0) {
                 return emptyScorer();
               } else if (foundTermCount == 1) {
@@ -191,12 +203,10 @@ public class TermInSetQuery extends Query {
                 return scorerFor(postings);
               }
 
-              // TODO: Should we re-check a term count heuristic here now that we know how many
-              // terms are actually in the segment?
               // Heuristic that determines whether-or-not to use DV or postings. Based on ratio
-              // of total density to candidate size:
-              if (totalDensity > (K * leadCost)) {
-                return docValuesScorer(dvType, reader);
+              // of expected advances to candidate size:
+              if (expectedAdvances > (K * leadCost)) {
+                return docValuesScorer(reader);
               } else {
                 return postingsScorer(context.reader(), termsEnum, termStates);
               }
@@ -210,7 +220,6 @@ public class TermInSetQuery extends Query {
               final long cost;
               Terms indexTerms = reader.terms(field);
               if (indexTerms == null) {
-                // TODO: This needs to work with any DV field type!
                 SortedSetDocValues dv = reader.getSortedSetDocValues(field);
                 if (dv == null) {
                   return 0;
@@ -253,9 +262,6 @@ public class TermInSetQuery extends Query {
         }
 
         int fieldDocCount = t.getDocCount();
-        double avgPostingsLength = (double) t.getSumDocFreq() / t.size();
-        boolean checkForFullyDense = avgPostingsLength > (fieldDocCount * 0.75);
-
         TermsEnum termsEnum = t.iterator();
         TermState[] termStates = new TermState[terms.length];
         for (int i = 0; i < terms.length; i++) {
@@ -265,7 +271,7 @@ public class TermInSetQuery extends Query {
           }
 
           // TODO: #docFreq isn't free. Maybe this isn't worth it?
-          if (checkForFullyDense && fieldDocCount == termsEnum.docFreq()) {
+          if (fieldDocCount == termsEnum.docFreq()) {
             PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
             return scorerFor(postings);
           }
@@ -399,39 +405,13 @@ public class TermInSetQuery extends Query {
         return scorerFor(it);
       }
 
-      private Scorer docValuesScorer(DocValuesType dvType, LeafReader reader) throws IOException {
-        switch (dvType) {
-          case SORTED:
-          case SORTED_SET:
-            SortedSetDocValues ssdv = DocValues.getSortedSet(reader, field);
-            SortedDocValues sdv = DocValues.unwrapSingleton(ssdv);
-            if (sdv != null) {
-              return docValueScorer(sdv);
-            } else {
-              return docValueScorer(ssdv);
-            }
-          case BINARY:
-            return docValueScorer(DocValues.getBinary(reader, field));
-          case NUMERIC:
-          case SORTED_NUMERIC:
-            SortedNumericDocValues sndv = DocValues.getSortedNumeric(reader, field);
-            NumericDocValues ndv = DocValues.unwrapSingleton(sndv);
-            if (ndv != null) {
-              return docValueScorer(ndv);
-            } else {
-              return docValueScorer(sndv);
-            }
-          default:
-            throw new IllegalStateException(
-                "docValuesScorer should never be used when there are no indexed doc values");
-        }
-      }
+      private Scorer docValuesScorer(LeafReader reader) throws IOException {
+        SortedSetDocValues ssdv = DocValues.getSortedSet(reader, field);
 
-      private Scorer docValueScorer(SortedDocValues dv) throws IOException {
         boolean hasAtLeastOneTerm = false;
-        LongBitSet ords = new LongBitSet(dv.getValueCount());
+        LongBitSet ords = new LongBitSet(ssdv.getValueCount());
         for (BytesRef term : terms) {
-          long ord = dv.lookupTerm(term);
+          long ord = ssdv.lookupTerm(term);
           if (ord >= 0) {
             ords.set(ord);
             hasAtLeastOneTerm = true;
@@ -442,141 +422,42 @@ public class TermInSetQuery extends Query {
           return emptyScorer();
         }
 
-        TwoPhaseIterator it =
-            new TwoPhaseIterator(dv) {
-              @Override
-              public boolean matches() throws IOException {
-                return ords.get(dv.ordValue());
-              }
-
-              @Override
-              public float matchCost() {
-                return 1f;
-              }
-            };
-
-        return scorerFor(it);
-      }
-
-      private Scorer docValueScorer(SortedSetDocValues dv) throws IOException {
-        boolean hasAtLeastOneTerm = false;
-        LongBitSet ords = new LongBitSet(dv.getValueCount());
-        for (BytesRef term : terms) {
-          long ord = dv.lookupTerm(term);
-          if (ord >= 0) {
-            ords.set(ord);
-            hasAtLeastOneTerm = true;
-          }
-        }
-
-        if (hasAtLeastOneTerm == false) {
-          return emptyScorer();
-        }
-
-        TwoPhaseIterator it =
-            new TwoPhaseIterator(dv) {
-              @Override
-              public boolean matches() throws IOException {
-                for (int i = 0; i < dv.docValueCount(); i++) {
-                  if (ords.get(dv.nextOrd())) {
-                    return true;
-                  }
+        TwoPhaseIterator it;
+        SortedDocValues singleton = DocValues.unwrapSingleton(ssdv);
+        if (singleton != null) {
+          it =
+              new TwoPhaseIterator(singleton) {
+                @Override
+                public boolean matches() throws IOException {
+                  return ords.get(singleton.ordValue());
                 }
-                return false;
-              }
 
-              @Override
-              public float matchCost() {
-                return 1f;
-              }
-            };
-
-        return scorerFor(it);
-      }
-
-      private Scorer docValueScorer(BinaryDocValues dv) {
-        Set<BytesRef> termSet = new HashSet<>(terms.length);
-        termSet.addAll(Arrays.asList(terms));
-
-        TwoPhaseIterator it =
-            new TwoPhaseIterator(dv) {
-              @Override
-              public boolean matches() throws IOException {
-                return termSet.contains(dv.binaryValue());
-              }
-
-              @Override
-              public float matchCost() {
-                return 1f;
-              }
-            };
-
-        return scorerFor(it);
-      }
-
-      private Scorer docValueScorer(NumericDocValues dv) {
-        LongBitSet vals = numericTermSet();
-
-        TwoPhaseIterator it =
-            new TwoPhaseIterator(dv) {
-              @Override
-              public boolean matches() throws IOException {
-                return vals.get(dv.longValue());
-              }
-
-              @Override
-              public float matchCost() {
-                return 1f;
-              }
-            };
-
-        return scorerFor(it);
-      }
-
-      private Scorer docValueScorer(SortedNumericDocValues dv) {
-        LongBitSet vals = numericTermSet();
-
-        TwoPhaseIterator it =
-            new TwoPhaseIterator(dv) {
-              @Override
-              public boolean matches() throws IOException {
-                for (int i = 0; i < dv.docValueCount(); i++) {
-                  if (vals.get(dv.nextValue())) {
-                    return true;
-                  }
+                @Override
+                public float matchCost() {
+                  return 1f;
                 }
-                return false;
-              }
+              };
+        } else {
+          it =
+              new TwoPhaseIterator(ssdv) {
+                @Override
+                public boolean matches() throws IOException {
+                  for (int i = 0; i < ssdv.docValueCount(); i++) {
+                    if (ords.get(ssdv.nextOrd())) {
+                      return true;
+                    }
+                  }
+                  return false;
+                }
 
-              @Override
-              public float matchCost() {
-                return 1f;
-              }
-            };
+                @Override
+                public float matchCost() {
+                  return 1f;
+                }
+              };
+        }
 
         return scorerFor(it);
-      }
-
-      private LongBitSet numericTermSet() {
-        long max = Long.MIN_VALUE;
-        long[] valsArray = new long[terms.length];
-        int valCount = 0;
-        for (BytesRef term : terms) {
-          try {
-            long val = Long.parseLong(Term.toString(term));
-            max = Math.max(max, val);
-            valsArray[valCount] = val;
-            valCount++;
-          } catch (NumberFormatException e) {
-            // skip
-          }
-        }
-        LongBitSet vals = new LongBitSet(max);
-        for (int i = 0; i < valCount; i++) {
-          vals.set(valsArray[i]);
-        }
-
-        return vals;
       }
 
       @Override

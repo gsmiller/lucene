@@ -186,8 +186,15 @@ public class TermInSetQuery extends Query {
                   return scorerFor(postings);
                 }
 
-                foundTermCount++;
+                // As expectedAdvances grows, it becomes more-and-more likely a doc-values approach
+                // will be more cost-effective. Since the cost of a doc-values approach is bound
+                // by leadCost, we chose to use it if expectedAdvances grows beyond a certain point:
                 expectedAdvances += Math.min(termDocFreq, leadCost);
+                if (expectedAdvances > (K * leadCost)) {
+                  return docValuesScorer(reader);
+                }
+
+                foundTermCount++;
                 lastTermState = termsEnum.termState();
                 lastTerm = term;
                 termStates[i] = lastTermState;
@@ -203,13 +210,9 @@ public class TermInSetQuery extends Query {
                 return scorerFor(postings);
               }
 
-              // Heuristic that determines whether-or-not to use DV or postings. Based on ratio
-              // of expected advances to candidate size:
-              if (expectedAdvances > (K * leadCost)) {
-                return docValuesScorer(reader);
-              } else {
-                return postingsScorer(context.reader(), termsEnum, termStates);
-              }
+              // If we reach this point, it's likely a postings-based approach will prove more
+              // cost-effective:
+              return postingsScorer(context.reader(), termsEnum, termStates);
             }
           }
 

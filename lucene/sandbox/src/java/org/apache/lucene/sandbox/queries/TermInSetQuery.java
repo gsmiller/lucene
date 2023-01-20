@@ -23,6 +23,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.SortedSet;
 import org.apache.lucene.index.DocValues;
+import org.apache.lucene.index.DocValuesType;
+import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.PostingsEnum;
@@ -115,15 +117,17 @@ public class TermInSetQuery extends Query {
 
       @Override
       public BulkScorer bulkScorer(LeafReaderContext context) throws IOException {
-        LeafReader reader = context.reader();
-        Terms t = reader.terms(field);
+        final LeafReader reader = context.reader();
+        final Terms t = reader.terms(field);
         if (t == null) {
           return super.bulkScorer(context);
         }
 
         // For top-level bulk scoring, it should be better to do term-at-a-time scoring with
         // postings:
-        TermsEnum termsEnum = t.iterator();
+        final TermsEnum termsEnum = t.iterator();
+        int fieldDocCount = t.getDocCount();
+        PostingsEnum singleton = null;
         PostingsEnum reuse = null;
         DocIdSetBuilder builder = null;
         PrefixCodedTerms.TermIterator termIterator = termData.iterator();
@@ -132,36 +136,44 @@ public class TermInSetQuery extends Query {
             continue;
           }
 
+          // If we find a "completely dense" postings list, we can use it directly:
+          int termDocFreq = termsEnum.docFreq();
+          if (fieldDocCount == termDocFreq) {
+            singleton = termsEnum.postings(reuse, PostingsEnum.NONE);
+            break;
+          }
+
+          reuse = termsEnum.postings(reuse, PostingsEnum.NONE);
           if (builder == null) {
             builder = new DocIdSetBuilder(reader.maxDoc());
           }
-          reuse = termsEnum.postings(reuse, PostingsEnum.NONE);
           builder.add(reuse);
         }
 
-        if (builder == null) {
+        final DocIdSetIterator it;
+        if (singleton != null) {
+          it = singleton;
+        } else if (builder == null) {
           // No terms found:
           return null;
+        } else {
+          it = builder.build().iterator();
         }
-
-        // TODO: We could use less memory if we do "window scoring" like BooleanScorer does. Maybe
-        // we can reuse that implementation somehow?
-        DocIdSetIterator it = builder.build().iterator();
-        long cost = it.cost();
+        final long cost = it.cost();
 
         return new BulkScorer() {
 
           @Override
           public int score(LeafCollector collector, Bits acceptDocs, int min, int max)
               throws IOException {
-            DummyScorable dummy = new DummyScorable(boost);
+            final DummyScorable dummy = new DummyScorable(boost);
             collector.setScorer(dummy);
 
-            if (it.docID() < min) {
-              it.advance(min);
+            int doc = it.docID();
+            if (doc < min) {
+              doc = it.advance(min);
             }
 
-            int doc = it.docID();
             while (doc < max) {
               if (acceptDocs == null || acceptDocs.get(doc)) {
                 dummy.docID = doc;
@@ -196,9 +208,20 @@ public class TermInSetQuery extends Query {
           throw new IllegalStateException("Must call IndexSearcher#rewrite");
         }
 
-        LeafReader reader = context.reader();
-        Terms t = reader.terms(field);
-        SortedSetDocValues dv = reader.getSortedSetDocValues(field);
+        final LeafReader reader = context.reader();
+        final FieldInfo fi = reader.getFieldInfos().fieldInfo(field);
+        if (fi == null) {
+          return null;
+        }
+
+        final Terms t = reader.terms(field);
+        final SortedSetDocValues dv;
+        if (fi.getDocValuesType() == DocValuesType.SORTED
+            || fi.getDocValuesType() == DocValuesType.SORTED_SET) {
+          dv = DocValues.getSortedSet(reader, field);
+        } else {
+          dv = null;
+        }
 
         // If the field doesn't exist in the segment, return null:
         if (t == null && dv == null) {
@@ -239,7 +262,6 @@ public class TermInSetQuery extends Query {
               // decision. Maybe we can do better? Possible bloom filter application?
               return docValuesScorer(dv);
             } else {
-              Terms t = reader.terms(field);
               if (t == null) {
                 // If there are no postings, we have to use doc values:
                 return docValuesScorer(dv);
@@ -371,8 +393,8 @@ public class TermInSetQuery extends Query {
 
             // If we find a "completely dense" postings list, we can use it directly:
             if (fieldDocCount == termsEnum.docFreq()) {
-              PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
-              return scorerFor(postings);
+              reuse = termsEnum.postings(reuse, PostingsEnum.NONE);
+              return scorerFor(reuse);
             }
           }
 

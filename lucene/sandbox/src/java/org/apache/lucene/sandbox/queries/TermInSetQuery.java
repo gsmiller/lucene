@@ -23,8 +23,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.SortedSet;
 import org.apache.lucene.index.DocValues;
-import org.apache.lucene.index.DocValuesType;
-import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.PostingsEnum;
@@ -35,15 +33,18 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.index.TermState;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
+import org.apache.lucene.search.BulkScorer;
 import org.apache.lucene.search.ConstantScoreScorer;
 import org.apache.lucene.search.ConstantScoreWeight;
 import org.apache.lucene.search.DisiPriorityQueue;
 import org.apache.lucene.search.DisiWrapper;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.LeafCollector;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.QueryVisitor;
+import org.apache.lucene.search.Scorable;
 import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.ScorerSupplier;
@@ -51,6 +52,7 @@ import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TwoPhaseIterator;
 import org.apache.lucene.search.Weight;
 import org.apache.lucene.util.ArrayUtil;
+import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.DocIdSetBuilder;
@@ -67,10 +69,13 @@ public class TermInSetQuery extends Query {
   // useful)
   private static final double J = 1.0;
   private static final double K = 1.0;
-  // L: postings lists under this threshold will always be "pre-processed" into a bitset
-  private static final int L = 512;
-  // M: max number of clauses we'll manage/check during scoring (these remain "unprocessed")
-  private static final int M = Math.min(IndexSearcher.getMaxClauseCount(), 64);
+  // number of terms we'll "pre-seek" to validate; limits heap if there are many terms
+  private static final int PRE_SEEK_TERM_LIMIT = 1024;
+  // postings lists under this threshold will always be "pre-processed" into a bitset
+  private static final int POSTINGS_PRE_PROCESS_THRESHOLD = 512;
+  // max number of clauses we'll manage/check during scoring (these remain "unprocessed")
+  private static final int MAX_UNPROCESSED_POSTINGS =
+      Math.min(IndexSearcher.getMaxClauseCount(), 64);
 
   private final String field;
   private final PrefixCodedTerms termData;
@@ -99,8 +104,6 @@ public class TermInSetQuery extends Query {
       previous.copyBytes(term);
     }
     termData = termBuilder.finish();
-
-    // TODO: compute lazily?
     termsHashCode = termData.hashCode();
   }
 
@@ -110,7 +113,72 @@ public class TermInSetQuery extends Query {
 
     return new ConstantScoreWeight(this, boost) {
 
-      // TODO: bulkScorer?
+      @Override
+      public BulkScorer bulkScorer(LeafReaderContext context) throws IOException {
+        LeafReader reader = context.reader();
+        Terms t = reader.terms(field);
+        if (t == null) {
+          return super.bulkScorer(context);
+        }
+
+        // For top-level bulk scoring, it should be better to do term-at-a-time scoring with
+        // postings:
+        TermsEnum termsEnum = t.iterator();
+        PostingsEnum reuse = null;
+        DocIdSetBuilder builder = null;
+        PrefixCodedTerms.TermIterator termIterator = termData.iterator();
+        for (BytesRef term = termIterator.next(); term != null; term = termIterator.next()) {
+          if (termsEnum.seekExact(term) == false) {
+            continue;
+          }
+
+          if (builder == null) {
+            builder = new DocIdSetBuilder(reader.maxDoc());
+          }
+          reuse = termsEnum.postings(reuse, PostingsEnum.NONE);
+          builder.add(reuse);
+        }
+
+        if (builder == null) {
+          // No terms found:
+          return null;
+        }
+
+        // TODO: We could use less memory if we do "window scoring" like BooleanScorer does. Maybe
+        // we can reuse that implementation somehow?
+        DocIdSetIterator it = builder.build().iterator();
+        long cost = it.cost();
+
+        return new BulkScorer() {
+
+          @Override
+          public int score(LeafCollector collector, Bits acceptDocs, int min, int max)
+              throws IOException {
+            DummyScorable dummy = new DummyScorable(boost);
+            collector.setScorer(dummy);
+
+            if (it.docID() < min) {
+              it.advance(min);
+            }
+
+            int doc = it.docID();
+            while (doc < max) {
+              if (acceptDocs == null || acceptDocs.get(doc)) {
+                dummy.docID = doc;
+                collector.collect(doc);
+              }
+              doc = it.nextDoc();
+            }
+
+            return doc;
+          }
+
+          @Override
+          public long cost() {
+            return cost;
+          }
+        };
+      }
 
       @Override
       public Scorer scorer(LeafReaderContext context) throws IOException {
@@ -128,11 +196,26 @@ public class TermInSetQuery extends Query {
           throw new IllegalStateException("Must call IndexSearcher#rewrite");
         }
 
-        // If the field doesn't exist in the segment, return null:
         LeafReader reader = context.reader();
-        FieldInfo fi = reader.getFieldInfos().fieldInfo(field);
-        if (fi == null) {
+        Terms t = reader.terms(field);
+        SortedSetDocValues dv = reader.getSortedSetDocValues(field);
+
+        // If the field doesn't exist in the segment, return null:
+        if (t == null && dv == null) {
           return null;
+        }
+
+        // Estimate cost:
+        final long cost;
+        if (t == null) {
+          cost = dv.cost();
+        } else {
+          long potentialExtraCost = t.getSumDocFreq();
+          final long indexedTermCount = t.size();
+          if (indexedTermCount != -1) {
+            potentialExtraCost -= indexedTermCount;
+          }
+          cost = termData.size() + potentialExtraCost;
         }
 
         return new ScorerSupplier() {
@@ -142,26 +225,24 @@ public class TermInSetQuery extends Query {
             assert termData.size() > 1;
 
             // If there are no doc values indexed, we have to use a postings-based approach:
-            DocValuesType dvType = fi.getDocValuesType();
-            if (dvType != DocValuesType.SORTED && dvType != DocValuesType.SORTED_SET) {
-              Terms t = reader.terms(field);
-              if (t == null) {
-                return emptyScorer();
-              }
-              return postingsScorer(reader, t.iterator(), null, -1);
+            if (dv == null) {
+              return postingsScorer(reader, t.getDocCount(), t.iterator(), null);
             }
 
-            if (termData.size() > J * leadCost) {
+            // Number of possible candidates that need filtering:
+            long candidateSize = Math.min(leadCost, dv.cost());
+
+            if (termData.size() > J * candidateSize) {
               // If the number of terms is > the number of candidates, DV should perform better.
               // TODO: This assumes all terms are present in the segment. If the actual number of
               // found terms in the segment is significantly smaller, this can be the wrong
               // decision. Maybe we can do better? Possible bloom filter application?
-              return docValuesScorer(reader);
+              return docValuesScorer(dv);
             } else {
               Terms t = reader.terms(field);
               if (t == null) {
                 // If there are no postings, we have to use doc values:
-                return docValuesScorer(reader);
+                return docValuesScorer(dv);
               }
 
               // Assuming documents are randomly distributed (note: they may not be), as soon as
@@ -175,10 +256,11 @@ public class TermInSetQuery extends Query {
               // complicating matters, we don't know how many of the terms are actually in the
               // segment (we assume they all are), and of course, our candidate size is also an
               // estimate:
-              double avgTermAdvances = Math.min(leadCost, (double) t.getSumDocFreq() / t.size());
+              double avgTermAdvances =
+                  Math.min(candidateSize, (double) t.getSumDocFreq() / t.size());
               double expectedTotalAdvances = avgTermAdvances * termData.size();
-              if (expectedTotalAdvances > leadCost) { // TODO: tuning coefficient?
-                return docValuesScorer(reader);
+              if (expectedTotalAdvances > K * candidateSize) {
+                return docValuesScorer(dv);
               }
 
               // At this point, it seems that using a postings approach may be best, so we'll
@@ -186,15 +268,22 @@ public class TermInSetQuery extends Query {
               // one more decision. The hope is that we end up using a postings approach since all
               // this term seeking is wasted if we go DV:
               long expectedAdvances = 0;
+              int visitedTermCount = 0;
               int foundTermCount = 0;
               int fieldDocCount = t.getDocCount();
               TermsEnum termsEnum = t.iterator();
-              List<TermState> termStates = new ArrayList<>();
+              // Note: We can safely cast termData.size() to an int here since all the terms
+              // originally came into the ctor in a Collection:
+              List<TermState> termStates =
+                  new ArrayList<>(Math.min(PRE_SEEK_TERM_LIMIT, Math.toIntExact(termData.size())));
               TermState lastTermState = null;
               BytesRef lastTerm = null;
               PrefixCodedTerms.TermIterator termIterator = termData.iterator();
-              for (BytesRef term = termIterator.next(); term != null; term = termIterator.next()) {
+              for (BytesRef term = termIterator.next();
+                  term != null && visitedTermCount < PRE_SEEK_TERM_LIMIT;
+                  term = termIterator.next(), visitedTermCount++) {
                 if (termsEnum.seekExact(term) == false) {
+                  // Keep track that the term wasn't found:
                   termStates.add(null);
                   continue;
                 }
@@ -208,10 +297,11 @@ public class TermInSetQuery extends Query {
 
                 // As expectedAdvances grows, it becomes more-and-more likely a doc-values approach
                 // will be more cost-effective. Since the cost of a doc-values approach is bound
-                // by leadCost, we chose to use it if expectedAdvances grows beyond a certain point:
-                expectedAdvances += Math.min(termDocFreq, leadCost);
-                if (expectedAdvances > (K * leadCost)) {
-                  return docValuesScorer(reader);
+                // by candidateSize, we chose to use it if expectedAdvances grows beyond a certain
+                // point:
+                expectedAdvances += Math.min(termDocFreq, candidateSize);
+                if (expectedAdvances > K * candidateSize) {
+                  return docValuesScorer(dv);
                 }
 
                 foundTermCount++;
@@ -220,49 +310,27 @@ public class TermInSetQuery extends Query {
                 termStates.add(lastTermState);
               }
 
-              // We have some new information about how many terms were actually found in the
-              // segment, so make some special-case decisions based on that new information:
-              if (foundTermCount == 0) {
-                return emptyScorer();
-              } else if (foundTermCount == 1) {
-                termsEnum.seekExact(lastTerm, lastTermState);
-                PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
-                return scorerFor(postings);
+              if (visitedTermCount == termData.size()) {
+                // If we visited all the terms, we do one more check for some special-cases:
+                if (foundTermCount == 0) {
+                  return emptyScorer();
+                } else if (foundTermCount == 1) {
+                  termsEnum.seekExact(lastTerm, lastTermState);
+                  PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
+                  return scorerFor(postings);
+                }
               }
 
               // If we reach this point, it's likely a postings-based approach will prove more
               // cost-effective:
               return postingsScorer(
-                  context.reader(), termsEnum, termStates.iterator(), fieldDocCount);
+                  context.reader(), fieldDocCount, termsEnum, termStates.iterator());
             }
           }
 
           @Override
           public long cost() {
-            // TODO: Should we lazily store this? Will #cost every be called multiple times?
-            try {
-              final long cost;
-              Terms indexTerms = reader.terms(field);
-              if (indexTerms == null) {
-                SortedSetDocValues dv = reader.getSortedSetDocValues(field);
-                if (dv == null) {
-                  return 0;
-                } else {
-                  return dv.cost();
-                }
-              }
-
-              long potentialExtraCost = indexTerms.getSumDocFreq();
-              final long indexedTermCount = indexTerms.size();
-              if (indexedTermCount != -1) {
-                potentialExtraCost -= indexedTermCount;
-              }
-              cost = termData.size() + potentialExtraCost;
-
-              return cost;
-            } catch (IOException ioe) {
-              return Long.MAX_VALUE;
-            }
+            return cost;
           }
         };
       }
@@ -280,7 +348,7 @@ public class TermInSetQuery extends Query {
       }
 
       private Scorer postingsScorer(
-          LeafReader reader, TermsEnum termsEnum, Iterator<TermState> termStates, int fieldDocCount)
+          LeafReader reader, int fieldDocCount, TermsEnum termsEnum, Iterator<TermState> termStates)
           throws IOException {
         List<DisiWrapper> unprocessed = null;
         PriorityQueue<DisiWrapper> unprocessedPq = null;
@@ -288,10 +356,11 @@ public class TermInSetQuery extends Query {
         PostingsEnum reuse = null;
         PrefixCodedTerms.TermIterator termIterator = termData.iterator();
         for (BytesRef term = termIterator.next(); term != null; term = termIterator.next()) {
-          // If we have term states, use them:
-          if (termStates != null) {
+          // Use any term states we have:
+          if (termStates != null && termStates.hasNext()) {
             TermState termState = termStates.next();
             if (termState == null) {
+              // Term wasn't found in the segment; move on:
               continue;
             }
             termsEnum.seekExact(term, termState);
@@ -300,35 +369,37 @@ public class TermInSetQuery extends Query {
               continue;
             }
 
-            // TODO: #docFreq isn't free. Maybe this isn't worth it?
+            // If we find a "completely dense" postings list, we can use it directly:
             if (fieldDocCount == termsEnum.docFreq()) {
               PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
               return scorerFor(postings);
             }
           }
 
-          if (termsEnum.docFreq() < L) { // TODO: should this be a ratio to candidate size?
+          if (termsEnum.docFreq() < POSTINGS_PRE_PROCESS_THRESHOLD) {
+            // For small postings lists, we pre-process them directly into a bitset since they
+            // are unlikely to benefit from skipping:
             if (processedPostings == null) {
               processedPostings = new DocIdSetBuilder(reader.maxDoc());
             }
-            processedPostings.add(termsEnum.postings(reuse, PostingsEnum.NONE));
+            reuse = termsEnum.postings(reuse, PostingsEnum.NONE);
+            processedPostings.add(reuse);
           } else {
             DisiWrapper w = new DisiWrapper(termsEnum.postings(null, PostingsEnum.NONE));
             if (unprocessedPq != null) {
+              // We've hit our unprocessed postings limit, so use our PQ:
               DisiWrapper evicted = unprocessedPq.insertWithOverflow(w);
-              assert evicted != null;
-              assert processedPostings != null;
               processedPostings.add(evicted.iterator);
             } else {
               if (unprocessed == null) {
-                unprocessed = new ArrayList<>(M);
+                unprocessed = new ArrayList<>(MAX_UNPROCESSED_POSTINGS);
               }
-              if (unprocessed.size() < M) {
+              if (unprocessed.size() < MAX_UNPROCESSED_POSTINGS) {
                 unprocessed.add(w);
               } else {
-                assert unprocessedPq == null;
+                // Hit our unprocessed postings limit; switch to PQ:
                 unprocessedPq =
-                    new PriorityQueue<>(M) {
+                    new PriorityQueue<>(MAX_UNPROCESSED_POSTINGS) {
                       @Override
                       protected boolean lessThan(DisiWrapper a, DisiWrapper b) {
                         return a.cost < b.cost;
@@ -338,7 +409,6 @@ public class TermInSetQuery extends Query {
                 unprocessed = null;
 
                 DisiWrapper evicted = unprocessedPq.insertWithOverflow(w);
-                assert evicted != null;
                 if (processedPostings == null) {
                   processedPostings = new DocIdSetBuilder(reader.maxDoc());
                 }
@@ -348,51 +418,55 @@ public class TermInSetQuery extends Query {
           }
         }
 
+        // No terms found:
         if (processedPostings == null && unprocessed == null) {
           assert unprocessedPq == null;
           return emptyScorer();
         }
 
-        if (processedPostings != null && (unprocessed == null && unprocessedPq == null)) {
-          return scorerFor(processedPostings.build().iterator());
-        }
-
+        // Single term found and _not_ pre-built into the bitset:
         if (processedPostings == null && unprocessed.size() == 1) {
           assert unprocessedPq == null;
           return scorerFor(unprocessed.get(0).iterator);
         }
 
-        DisiWrapper[] postings;
+        // All postings built into the bitset:
+        if (processedPostings != null && unprocessed == null && unprocessedPq == null) {
+          return scorerFor(processedPostings.build().iterator());
+        }
+
+        DisiPriorityQueue pq;
+        final long cost;
         if (unprocessed != null) {
+          assert unprocessedPq == null;
           if (processedPostings != null) {
-            postings = new DisiWrapper[unprocessed.size() + 1];
-            postings[postings.length - 1] = new DisiWrapper(processedPostings.build().iterator());
-          } else {
-            postings = new DisiWrapper[unprocessed.size()];
+            unprocessed.add(new DisiWrapper(processedPostings.build().iterator()));
           }
-          System.arraycopy(
-              unprocessed.toArray(new DisiWrapper[0]), 0, postings, 0, unprocessed.size());
+          pq = new DisiPriorityQueue(unprocessed.size());
+          pq.addAll(unprocessed.toArray(new DisiWrapper[0]), 0, unprocessed.size());
+          cost = unprocessed.stream().mapToLong(w -> w.cost).sum();
         } else {
           assert unprocessedPq != null && processedPostings != null;
-          assert unprocessedPq.size() == M;
-          postings = new DisiWrapper[M + 1];
+          assert unprocessedPq.size() == MAX_UNPROCESSED_POSTINGS;
+          DisiWrapper[] postings = new DisiWrapper[MAX_UNPROCESSED_POSTINGS + 1];
           int i = 0;
+          long c = 0;
           for (DisiWrapper w : unprocessedPq) {
+            c += w.cost;
             postings[i] = w;
             i++;
           }
-          postings[i] = new DisiWrapper(processedPostings.build().iterator());
+          DisiWrapper w = new DisiWrapper(processedPostings.build().iterator());
+          cost = c + w.cost;
+          postings[i] = w;
+          pq = new DisiPriorityQueue(postings.length);
+          pq.addAll(postings, 0, postings.length);
         }
 
-        DisiPriorityQueue pq = new DisiPriorityQueue(postings.length);
-        pq.addAll(postings, 0, postings.length);
-
-        long c = 0;
-        for (DisiWrapper w : postings) {
-          c += w.cost;
-        }
-        final long cost = c;
-
+        // This iterator is slightly different from a standard disjunction iterator in that it
+        // short-circuits whenever it finds a target doc (instead of ensuring all sub-iterators
+        // are positioned on the same doc). This can be done since we're not using it to score,
+        // only filter, and there are no second-phase checks:
         DocIdSetIterator it =
             new DocIdSetIterator() {
               private int docID = -1;
@@ -437,14 +511,12 @@ public class TermInSetQuery extends Query {
         return scorerFor(it);
       }
 
-      private Scorer docValuesScorer(LeafReader reader) throws IOException {
-        SortedSetDocValues ssdv = DocValues.getSortedSet(reader, field);
-
+      private Scorer docValuesScorer(SortedSetDocValues dv) throws IOException {
         boolean hasAtLeastOneTerm = false;
-        LongBitSet ords = new LongBitSet(ssdv.getValueCount());
+        LongBitSet ords = new LongBitSet(dv.getValueCount());
         PrefixCodedTerms.TermIterator termIterator = termData.iterator();
         for (BytesRef term = termIterator.next(); term != null; term = termIterator.next()) {
-          long ord = ssdv.lookupTerm(term);
+          long ord = dv.lookupTerm(term);
           if (ord >= 0) {
             ords.set(ord);
             hasAtLeastOneTerm = true;
@@ -456,7 +528,7 @@ public class TermInSetQuery extends Query {
         }
 
         TwoPhaseIterator it;
-        SortedDocValues singleton = DocValues.unwrapSingleton(ssdv);
+        SortedDocValues singleton = DocValues.unwrapSingleton(dv);
         if (singleton != null) {
           it =
               new TwoPhaseIterator(singleton) {
@@ -472,11 +544,11 @@ public class TermInSetQuery extends Query {
               };
         } else {
           it =
-              new TwoPhaseIterator(ssdv) {
+              new TwoPhaseIterator(dv) {
                 @Override
                 public boolean matches() throws IOException {
-                  for (int i = 0; i < ssdv.docValueCount(); i++) {
-                    if (ords.get(ssdv.nextOrd())) {
+                  for (int i = 0; i < dv.docValueCount(); i++) {
+                    if (ords.get(dv.nextOrd())) {
                       return true;
                     }
                   }
@@ -495,6 +567,7 @@ public class TermInSetQuery extends Query {
 
       @Override
       public boolean isCacheable(LeafReaderContext ctx) {
+        // TODO:
         return false;
       }
     };
@@ -570,5 +643,24 @@ public class TermInSetQuery extends Query {
   @Override
   public int hashCode() {
     return 31 * classHash() + termsHashCode;
+  }
+
+  private static final class DummyScorable extends Scorable {
+    private final float score;
+    int docID = -1;
+
+    DummyScorable(float score) {
+      this.score = score;
+    }
+
+    @Override
+    public float score() throws IOException {
+      return score;
+    }
+
+    @Override
+    public int docID() {
+      return docID;
+    }
   }
 }

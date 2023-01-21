@@ -66,6 +66,7 @@ import org.apache.lucene.util.automaton.ByteRunAutomaton;
 import org.apache.lucene.util.automaton.CompiledAutomaton;
 import org.apache.lucene.util.automaton.Operations;
 
+/** TODO: javadoc */
 public class TermInSetQuery extends Query {
   // TODO: tunable coefficients. need to actually tune them (or maybe these are too complex and not
   // useful)
@@ -279,7 +280,7 @@ public class TermInSetQuery extends Query {
               // segment (we assume they all are), and of course, our candidate size is also an
               // estimate:
               double avgTermAdvances =
-                  Math.min(candidateSize, (double) t.getSumDocFreq() / t.size());
+                  Math.min((double) candidateSize, (double) t.getSumDocFreq() / t.size());
               double expectedTotalAdvances = avgTermAdvances * termData.size();
               if (expectedTotalAdvances > K * candidateSize) {
                 return docValuesScorer(dv);

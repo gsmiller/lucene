@@ -300,7 +300,7 @@ public class TermInSetQuery extends Query {
               List<TermState> termStates =
                   new ArrayList<>(Math.min(PRE_SEEK_TERM_LIMIT, Math.toIntExact(termData.size())));
               TermState lastTermState = null;
-              BytesRef lastTerm = null;
+              BytesRefBuilder lastTerm = null;
               PrefixCodedTerms.TermIterator termIterator = termData.iterator();
               for (BytesRef term = termIterator.next();
                   term != null && visitedTermCount < PRE_SEEK_TERM_LIMIT;
@@ -329,7 +329,10 @@ public class TermInSetQuery extends Query {
 
                 foundTermCount++;
                 lastTermState = termsEnum.termState();
-                lastTerm = term;
+                if (lastTerm == null) {
+                  lastTerm = new BytesRefBuilder();
+                }
+                lastTerm.copyBytes(term);
                 termStates.add(lastTermState);
               }
 
@@ -338,7 +341,7 @@ public class TermInSetQuery extends Query {
                 if (foundTermCount == 0) {
                   return emptyScorer();
                 } else if (foundTermCount == 1) {
-                  termsEnum.seekExact(lastTerm, lastTermState);
+                  termsEnum.seekExact(lastTerm.get(), lastTermState);
                   PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
                   return scorerFor(postings);
                 }

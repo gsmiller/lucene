@@ -73,7 +73,7 @@ public class TermInSetQuery extends Query {
   private static final double J = 1.0;
   private static final double K = 1.0;
   // number of terms we'll "pre-seek" to validate; limits heap if there are many terms
-  private static final int PRE_SEEK_TERM_LIMIT = 1024;
+  private static final int PRE_SEEK_TERM_LIMIT = 16;
   // postings lists under this threshold will always be "pre-processed" into a bitset
   private static final int POSTINGS_PRE_PROCESS_THRESHOLD = 512;
   // max number of clauses we'll manage/check during scoring (these remain "unprocessed")
@@ -279,12 +279,14 @@ public class TermInSetQuery extends Query {
               // complicating matters, we don't know how many of the terms are actually in the
               // segment (we assume they all are), and of course, our candidate size is also an
               // estimate:
-//              double avgTermAdvances =
-//                  Math.min((double) candidateSize, (double) t.getSumDocFreq() / t.size());
-//              double expectedTotalAdvances = avgTermAdvances * termData.size();
-//              if (expectedTotalAdvances > K * candidateSize) {
-//                return docValuesScorer(dv);
-//              }
+              if (termData.size() > PRE_SEEK_TERM_LIMIT) {
+                double avgTermAdvances =
+                    Math.min((double) candidateSize, (double) t.getSumDocFreq() / t.size());
+                double expectedTotalAdvances = avgTermAdvances * termData.size();
+                if (expectedTotalAdvances > K * candidateSize) {
+                  return docValuesScorer(dv);
+                }
+              }
 
               // At this point, it seems that using a postings approach may be best, so we'll
               // actually seek to all the terms and gather more accurate index statistics and make

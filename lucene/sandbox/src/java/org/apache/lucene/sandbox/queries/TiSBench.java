@@ -30,7 +30,6 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.sandbox.search.DocValuesTermsQuery;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
-import org.apache.lucene.search.IndexOrDocValuesQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
@@ -47,7 +46,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
-// java -cp /home/rmuir/workspace/lucene/lucene/core/build/libs/lucene-core-10.0.0-SNAPSHOT.jar NumSetBenchmark.java /home/rmuir/Downloads/allCountries.txt /home/rmuir/Downloads/testIndex -1
+// java -cp "lucene/sandbox/build/libs/lucene-sandbox-10.0.0-SNAPSHOT.jar:lucene/core/build/libs/lucene-core-10.0.0-SNAPSHOT.jar" TiSBench.java /tmp/allCountries.txt /tmp/idx -1
 
 /** Benchmark set queries on 1M lines of Geonames. */
 public class TiSBench {
@@ -179,10 +178,11 @@ public class TiSBench {
   static int DUMMY;
 
   // for histogram:
-  // cut -f 11 allCountries.txt | sort | uniq -c | sort -nr | more
+  // cut -f 8 allCountries.txt | sort | uniq -c | sort -nr | more
   // "smaller numbers are more common"
 
   /*
+   * term counts (name field):
    * "la" -> 181425
    * "de" -> 171095
    * "saint" -> 62831
@@ -205,6 +205,7 @@ public class TiSBench {
    */
 
   /*
+   * term counts (country_code field):
    * 2240232 US
    * 874153 CN
    * 649062 IN
@@ -316,14 +317,15 @@ public class TiSBench {
 
     for (String textQuery : queries) {
       String parts[] = textQuery.split("\\|");
-      String ccParts[] = parts[1].split(",");
-      List<BytesRef> ccTerms = Arrays.stream(ccParts).map(BytesRef::new).toList();
+      String filterParts[] = parts[1].split(",");
+      List<BytesRef> filterTerms = Arrays.stream(filterParts).map(BytesRef::new).toList();
       BooleanQuery.Builder builder = new BooleanQuery.Builder();
       builder.add(new BooleanClause(new TermQuery(new Term("name", parts[0])), BooleanClause.Occur.MUST));
-//      Query q1 = new TermInSetQuery(filterField, ccTerms);
-//      Query q2 = new DocValuesTermsQuery(filterField, ccTerms);
+//      Query q1 = new TermInSetQuery(filterField, filterTerms);
+//      Query q2 = new DocValuesTermsQuery(filterField, filterTerms);
 //      Query q = new IndexOrDocValuesQuery(q1, q2);
-      Query q = new TermInSetQuery(filterField, ccTerms);
+//      Query q = new TermInSetQuery(filterField, filterTerms);
+      Query q = new DocValuesTermsQuery(filterField, filterTerms);
       builder.add(new BooleanClause(q, BooleanClause.Occur.MUST));
       if (doCount) {
         int hits = searcher.count(builder.build());

@@ -78,7 +78,7 @@ public class TermInSetQuery extends Query {
   private static final int POSTINGS_PRE_PROCESS_THRESHOLD = 512;
   // max number of clauses we'll manage/check during scoring (these remain "unprocessed")
   private static final int MAX_UNPROCESSED_POSTINGS =
-      Math.min(IndexSearcher.getMaxClauseCount(), 64);
+      Math.min(IndexSearcher.getMaxClauseCount(), 16);
 
   private final String field;
   private final PrefixCodedTerms termData;

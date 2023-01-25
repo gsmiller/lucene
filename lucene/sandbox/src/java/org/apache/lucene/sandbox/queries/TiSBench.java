@@ -33,7 +33,6 @@ import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.IndexOrDocValuesQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.BytesRef;
@@ -91,12 +90,14 @@ public class TiSBench {
         doBench(reader, MEDIUM_MEDIUM, "cc");
         System.out.print("SMALL_MEDIUM: ");
         doBench(reader, SMALL_MEDIUM, "cc");
+        System.out.println();
         System.out.print("BIG_PK: ");
         doBench(reader, BIG_PK, "id");
         System.out.print("MEDIUM_PK: ");
         doBench(reader, MEDIUM_PK, "id");
         System.out.print("SMALL_PK: ");
         doBench(reader, SMALL_PK, "id");
+        System.out.println();
         System.out.print("BIG_BIG COMBINED: ");
         doBench(reader, BIG_BIG, "combined");
         System.out.print("MEDIUM_BIG COMBINED: ");
@@ -319,9 +320,10 @@ public class TiSBench {
       List<BytesRef> ccTerms = Arrays.stream(ccParts).map(BytesRef::new).toList();
       BooleanQuery.Builder builder = new BooleanQuery.Builder();
       builder.add(new BooleanClause(new TermQuery(new Term("name", parts[0])), BooleanClause.Occur.MUST));
-      Query q1 = new TermInSetQuery(filterField, ccTerms);
-      Query q2 = new DocValuesTermsQuery(filterField, ccTerms);
-      Query q = new IndexOrDocValuesQuery(q1, q2);
+//      Query q1 = new TermInSetQuery(filterField, ccTerms);
+//      Query q2 = new DocValuesTermsQuery(filterField, ccTerms);
+//      Query q = new IndexOrDocValuesQuery(q1, q2);
+      Query q = new TermInSetQuery(filterField, ccTerms);
       builder.add(new BooleanClause(q, BooleanClause.Occur.MUST));
       if (doCount) {
         int hits = searcher.count(builder.build());

@@ -27,9 +27,12 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.Term;
+import org.apache.lucene.sandbox.search.DocValuesTermsQuery;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.search.IndexOrDocValuesQuery;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.store.FSDirectory;
@@ -316,7 +319,10 @@ public class TiSBench {
       List<BytesRef> ccTerms = Arrays.stream(ccParts).map(BytesRef::new).toList();
       BooleanQuery.Builder builder = new BooleanQuery.Builder();
       builder.add(new BooleanClause(new TermQuery(new Term("name", parts[0])), BooleanClause.Occur.MUST));
-      builder.add(new BooleanClause(new TermInSetQuery(filterField, ccTerms), BooleanClause.Occur.MUST));
+      Query q1 = new TermInSetQuery(filterField, ccTerms);
+      Query q2 = new DocValuesTermsQuery(filterField, ccTerms);
+      Query q = new IndexOrDocValuesQuery(q1, q2);
+      builder.add(new BooleanClause(q, BooleanClause.Occur.MUST));
       if (doCount) {
         int hits = searcher.count(builder.build());
         DUMMY += hits;

@@ -33,7 +33,6 @@ import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.IndexOrDocValuesQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.BytesRef;
@@ -338,10 +337,10 @@ public class TiSBench {
       List<BytesRef> filterTerms = Arrays.stream(filterParts).map(BytesRef::new).toList();
       BooleanQuery.Builder builder = new BooleanQuery.Builder();
       builder.add(new BooleanClause(new TermQuery(new Term("name", parts[0])), BooleanClause.Occur.MUST));
-      Query q1 = new TermInSetQuery(filterField, filterTerms);
-      Query q2 = new DocValuesTermsQuery(filterField, filterTerms);
-      Query q = new IndexOrDocValuesQuery(q1, q2);
-//      Query q = new TermInSetQuery(filterField, filterTerms);
+//      Query q1 = new TermInSetQuery(filterField, filterTerms);
+//      Query q2 = new DocValuesTermsQuery(filterField, filterTerms);
+//      Query q = new IndexOrDocValuesQuery(q1, q2);
+      Query q = new TermInSetQuery(filterField, filterTerms);
 //      Query q = new DocValuesTermsQuery(filterField, filterTerms);
       builder.add(new BooleanClause(q, BooleanClause.Occur.MUST));
       if (doCount) {

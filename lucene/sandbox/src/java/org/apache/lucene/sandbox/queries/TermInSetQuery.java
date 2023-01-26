@@ -73,12 +73,12 @@ public class TermInSetQuery extends Query {
   private static final double J = 1.0;
   private static final double K = 1.0;
   // number of terms we'll "pre-seek" to validate; limits heap if there are many terms
-  private static final int PRE_SEEK_TERM_LIMIT = 1024;
+  private static final int PRE_SEEK_TERM_LIMIT = 16;
   // postings lists under this threshold will always be "pre-processed" into a bitset
   private static final int POSTINGS_PRE_PROCESS_THRESHOLD = 512;
   // max number of clauses we'll manage/check during scoring (these remain "unprocessed")
   private static final int MAX_UNPROCESSED_POSTINGS =
-      Math.min(IndexSearcher.getMaxClauseCount(), 64);
+      Math.min(IndexSearcher.getMaxClauseCount(), 16);
 
   private final String field;
   private final PrefixCodedTerms termData;
@@ -116,6 +116,7 @@ public class TermInSetQuery extends Query {
 
     return new ConstantScoreWeight(this, boost) {
 
+      // TODO: not tested or benchmarked yet
       @Override
       public BulkScorer bulkScorer(LeafReaderContext context) throws IOException {
         final LeafReader reader = context.reader();
@@ -268,28 +269,12 @@ public class TermInSetQuery extends Query {
                 return docValuesScorer(dv);
               }
 
-              // Assuming documents are randomly distributed (note: they may not be), as soon as
-              // a given term's postings list size is >= the number of candidate documents, we
-              // would expect a that term's postings to require advancing for every candidate doc
-              // (in the average case). This cost is multiplied out by the number of terms, so we
-              // can estimate the total amount of posting list advances we'll need to do by
-              // taking the sum of the postings sizes across all of our terms. Unfortunately, it's
-              // costly to get the actual postings sizes (we need to seek to each term), so we
-              // do a gross estimate up-front by computing the average postings size. Further
-              // complicating matters, we don't know how many of the terms are actually in the
-              // segment (we assume they all are), and of course, our candidate size is also an
-              // estimate:
-              double avgTermAdvances =
-                  Math.min((double) candidateSize, (double) t.getSumDocFreq() / t.size());
-              double expectedTotalAdvances = avgTermAdvances * termData.size();
-              if (expectedTotalAdvances > K * candidateSize) {
-                return docValuesScorer(dv);
-              }
-
-              // At this point, it seems that using a postings approach may be best, so we'll
-              // actually seek to all the terms and gather more accurate index statistics and make
-              // one more decision. The hope is that we end up using a postings approach since all
-              // this term seeking is wasted if we go DV:
+              // Begin estimating the postings-approach cost term-by-term, with a limit on the
+              // total number of terms we check. If we reach the limit and a postings-approach
+              // still seems cheaper than a DV approach, we'll use it. The term limit both
+              // ensures we don't do too much wasted term seeking work if we end up using DVs,
+              // and also limits our heap usage since we keep track of term states for all the
+              // terms:
               long expectedAdvances = 0;
               int visitedTermCount = 0;
               int foundTermCount = 0;

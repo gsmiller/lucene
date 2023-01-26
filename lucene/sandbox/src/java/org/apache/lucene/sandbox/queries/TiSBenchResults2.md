@@ -1,3 +1,101 @@
+## Setup
+Benchmarks run against an index using `allCountries.txt` geonames data. Index created with:
+* "name" field that indexed the parsed name of each record
+* "cc" field that indexed the country code ID for each record (single valued)
+* "id" field that indexed the unique ID for each record (single valued)
+
+Each benchmark query "lead" with a single term matching against the "name" field and included a required conjunction
+over a disjunction of country codes (e.g., a "term-in-set" query that required one of the specified country codes
+for each hit to be considered a match). Details on the distributions of these terms for each task are below, followed by
+the results.
+
+The benchmark results compare:
+1. Our current `TermInSetQuery` implementation (always use postings for the country code clause)
+2. Our current `DocValuesTermsQuery` implementation (always use doc values for the country code clause)
+3. Our current `IndexOrDocValuesQuery` wrapping #1 and #2
+4. A proposed new sandbox `TermInSetQuery` that acts a bit like `IndexOrDocValuesQuery` but goes beyond just using
+field-level stats when deciding which approach to take, starts to peek at individual term stats.
+
+### Benchmark Term Distributions
+#### "Large" lead term counts:
+* "la" -> 181,425
+* "de" -> 171,095
+* "saint" -> 62,831
+* "canyon" -> 27,503
+
+#### "Medium" lead term counts:
+* "hotel" -> 64,349
+* "del" -> 37,469
+* "les" -> 13,111
+* "plaza" -> 10,605
+* "parc" -> 2,287
+* "by" -> 6,794
+
+#### "Small" lead term counts:
+* "channel" -> 4,186
+* "centre" -> 4,615
+* "st" -> 6,616
+* "imperial" -> 663
+* "silent" -> 99
+* "sant" -> 863
+* "andorra" -> 49
+
+#### Country Code filter term counts:
+#### High cost terms
+NOTE: First 10 used for "low cardinality" tasks, all 20 used for "high cardinality"
+
+* 2240232 US
+* 874153 CN
+* 649062 IN
+* 607434 NO
+* 455292 MX
+* 447465 ID
+* 366929 RU
+* 314332 CA
+* 255167 TH
+* 243458 IR
+* 225948 PK
+* 214006 AU
+* 199201 DE
+* 169307 FR
+* 153182 MA
+* 140885 NP
+* 132473 KR
+* 129968 BR
+* 119854 IT
+* 105131 PE
+
+#### Low cost terms
+NOTE: First 10 used for "low cardinality" tasks, all 20 used for "high cardinality"
+
+*  1 YU
+*  2 AN
+*  2 CS
+*  41 PN
+*  47 BV
+*  60 CC
+*  71 SM
+*  81 NF
+*  87 CX
+*  97 HM
+*  99 MC
+*  109 NR
+*  115 VA
+*  118 TK
+*  119 IO
+*  132 BL
+*  168 IM
+*  174 MO
+*  199 SX
+*  229 MF
+
+## Benchmark Results
+In general, the proposed `TermInSetQuery` tends to perform at least as well as `IndexOrDocValuesQuery` and better in
+some specific cases. These cases are where `IndexOrDocValuesQuery` incorrectly assumes a doc values approach will be
+better after looking at field-level stats, and the proposed `TermInSetQuery` makes a more informed decision to use
+doc values after loading some term-level stats. Primary-key cases also seem to perform significantly better with
+the proposed `TermInSetQuery`.
+
 ### All Country Code Filter Terms
 * Term-in-set cardinality: 254 terms
 * Term-in-set cost: Entire index / all documents
@@ -101,7 +199,6 @@ the proposed TiSQuery has something to do with the 8x cost differential it uses 
 which may not really be the right thing to do all the time. The proposed TiSQuery is more aggressive about switching
 to DV when the lead cost is lower than the number of terms (500), while IndexOrDV will only do so when the lead cost
 is 8x cheaper than 500.
-NOCOMMIT: test without 8x multiplier
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
 |--------------|------------------|-------------------|------------------|

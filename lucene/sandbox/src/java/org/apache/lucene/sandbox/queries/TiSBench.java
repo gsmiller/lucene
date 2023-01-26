@@ -278,7 +278,7 @@ public class TiSBench {
   }
 
   static void doBench(IndexReader reader, String[] leads, String filterField, String filterTerms, Approach approach, boolean doCount) throws Exception {
-    int iters = 300; //nocommit (300)
+    int iters = 300;
     // warmup
     for (int i = 0; i < iters; ++i) {
       getDocs(reader, leads, filterField, filterTerms, approach, doCount);

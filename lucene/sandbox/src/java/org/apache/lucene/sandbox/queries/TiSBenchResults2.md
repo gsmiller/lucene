@@ -92,40 +92,51 @@ heap and doing doc-at-a-time scoring (as with the standard BooleanQuery that the
 * Term-in-set cardinality: 500 terms
 * Term-in-set cost: exactly 1 for each term / total cost of 500 across all terms
 
-A postings-based approach is better than DV in this case given the PK-nature/low overall cost.
-NOCOMMIT: what's happening here?
+In this situation, a postings-approach is generally better than a DV approach. Even though there are 500 individual
+filter terms, because the field is a PK, the overall cost is still relatively low (500 total), so it's generally
+better to use postings over DV, but in some cases--where the lead term has a very low cost--DV might out-perform.
+Both IndexOrDV and the proposed TiSQuery make different decisions between postings and DV depending on the cost of
+the specific lead term, and generally do the right thing. I suspect the reason IndexOrDV performs worse than
+the proposed TiSQuery has something to do with the 8x cost differential it uses to more strongly prefer postings,
+which may not really be the right thing to do all the time. The proposed TiSQuery is more aggressive about switching
+to DV when the lead cost is lower than the number of terms (500), while IndexOrDV will only do so when the lead cost
+is 8x cheaper than 500.
+NOCOMMIT: test without 8x multiplier
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
 |--------------|------------------|-------------------|------------------|
-| Current TiS  | 3.88             | 5.67              | 6.02             |
-| DV           | 5.83             | 8.42              | 8.81             |
-| IndexOrDV    | 7.20             | 10.47             | 11.19            |
-| Proposed TiS | 5.14             | 7.83              | 8.71             |
+| Current TiS  | 17.54            | 25.71             | 24.98            |
+| DV           | 63.72            | 72.83             | 67.27            |
+| IndexOrDV    | 60.53            | 82.03             | 76.00            |
+| Proposed TiS | 35.26            | 56.62             | 62.80            |
 
 
 ### Medium Cardinality PK Filter Terms
 * Term-in-set cardinality: 20 terms
 * Term-in-set cost: exactly 1 for each term / total cost of 20 across all terms
 
-NOCOMMIT
+This is a similar story to above, but postings outperforms DV in general even more due to the lower cardinality of
+the filter terms. Because of the 8x multiplier in IndexOrDV, it _never_ chooses a DV approach, while the proposed TiS
+query does occasionally, which probably accounts for the performance benefit.
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
 |--------------|------------------|-------------------|------------------|
-| Current TiS  | 0.51             | 0.76              | 0.82             |
-| DV           | 0.55             | 0.81              | 0.88             |
-| IndexOrDV    | 0.57             | 0.84              | 0.91             |
-| Proposed TiS | 0.63             | 0.91              | 0.99             |
+| Current TiS  | 1.74             | 2.57              | 2.59             |
+| DV           | 19.23            | 10.02             | 6.10             |
+| IndexOrDV    | 4.39             | 6.50              | 6.63             |
+| Proposed TiS | 1.79             | 3.32              | 3.49             |
 
 
 ### Low Cardinality PK Filter Terms
 * Term-in-set cardinality: 10 terms
 * Term-in-set cost: exactly 1 for each term / total cost of 10 across all terms
 
-NOCOMMIT
+This is yet again the same story as above. IndexOrDV always uses postings, while the proposed TiSQuery does sometimes
+use DV, which is better in some cases, so it outperforms.
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
 |--------------|------------------|-------------------|------------------|
-| Current TiS  | 0.59             | 0.88              | 0.94             |
-| DV           | 0.46             | 0.68              | 0.74             |
-| IndexOrDV    | 0.77             | 1.16              | 1.26             |
-| Proposed TiS | 0.50             | 0.75              | 0.82             |
+| Current TiS  | 1.39             | 2.01              | 2.02             |
+| DV           | 16.36            | 8.17              | 4.42             |
+| IndexOrDV    | 3.55             | 5.20              | 5.29             |
+| Proposed TiS | 1.11             | 2.09              | 2.11             |

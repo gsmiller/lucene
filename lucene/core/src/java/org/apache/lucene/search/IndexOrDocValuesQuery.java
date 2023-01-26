@@ -168,7 +168,7 @@ public final class IndexOrDocValuesQuery extends Query {
             // still need to perform one comparison per document while points can
             // do much better than that given how values are organized. So we give
             // an arbitrary 8x penalty to doc values.
-            final long threshold = cost() >>> 3;
+            final long threshold = cost(); // nocommit
             if (threshold <= leadCost) {
               return indexScorerSupplier.get(leadCost);
             } else {

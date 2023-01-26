@@ -340,8 +340,8 @@ public class TiSBench {
 //      Query q1 = new TermInSetQuery(filterField, filterTerms);
 //      Query q2 = new DocValuesTermsQuery(filterField, filterTerms);
 //      Query q = new IndexOrDocValuesQuery(q1, q2);
-      Query q = new TermInSetQuery(filterField, filterTerms);
-//      Query q = new DocValuesTermsQuery(filterField, filterTerms);
+//      Query q = new TermInSetQuery(filterField, filterTerms);
+      Query q = new DocValuesTermsQuery(filterField, filterTerms);
       builder.add(new BooleanClause(q, BooleanClause.Occur.MUST));
       if (doCount) {
         int hits = searcher.count(builder.build());

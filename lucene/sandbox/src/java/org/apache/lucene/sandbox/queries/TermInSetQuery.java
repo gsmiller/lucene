@@ -279,14 +279,14 @@ public class TermInSetQuery extends Query {
               // complicating matters, we don't know how many of the terms are actually in the
               // segment (we assume they all are), and of course, our candidate size is also an
               // estimate:
-              if (termData.size() > PRE_SEEK_TERM_LIMIT) {
-                double avgTermAdvances =
-                    Math.min((double) candidateSize, (double) t.getSumDocFreq() / t.size());
-                double expectedTotalAdvances = avgTermAdvances * termData.size();
-                if (expectedTotalAdvances > K * candidateSize) {
-                  return docValuesScorer(dv);
-                }
-              }
+//              if (termData.size() > PRE_SEEK_TERM_LIMIT) {
+//                double avgTermAdvances =
+//                    Math.min((double) candidateSize, (double) t.getSumDocFreq() / t.size());
+//                double expectedTotalAdvances = avgTermAdvances * termData.size();
+//                if (expectedTotalAdvances > K * candidateSize) {
+//                  return docValuesScorer(dv);
+//                }
+//              }
 
               // At this point, it seems that using a postings approach may be best, so we'll
               // actually seek to all the terms and gather more accurate index statistics and make

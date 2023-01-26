@@ -32,6 +32,7 @@ import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.BytesRef;
@@ -227,11 +228,26 @@ public class TiSBench {
    * 119854 IT
    * 105131 PE
    *
+   *  1 YU
+   *  2 AN
+   *  2 CS
+   *  41 PN
+   *  47 BV
+   *  60 CC
+   *  71 SM
+   *  81 NF
+   *  87 CX
+   *  97 HM
+   *  99 MC
    *  109 NR
    *  115 VA
    *  118 TK
    *  119 IO
    *  132 BL
+   *  168 IM
+   *  174 MO
+   *  199 SX
+   *  229 MF
    */
   static final String[] BIG_BIG = new String[] {
       "la|AD,CN,IN,NO,MX,ID,RU,CA,TH,IR,PK,AU,DE,FR,MA,NP,KR,BR,IT,PE",    // 100471 hits
@@ -260,29 +276,29 @@ public class TiSBench {
   };
 
   static final String[] BIG_MEDIUM = new String[] {
-      "la|NR,VA,TK,IO,BL",    // 14 hits
-      "de|NR,VA,TK,IO,BL",    // 33 hits
-      "saint|NR,VA,TK,IO,BL",   // 6 hits
-      "canyon|NR,VA,TK,IO,BL",   // 0 hits
+      "la|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",    // 14 hits
+      "de|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",    // 33 hits
+      "saint|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MFL",   // 6 hits
+      "canyon|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",   // 0 hits
   };
 
   static final String[] MEDIUM_MEDIUM = new String[] {
-      "hotel|NR,VA,TK,IO,BL", // 8 hits
-      "del|NR,VA,TK,IO,BL",   // 17 hits
-      "les|NR,VA,TK,IO,BL",   // 5 hits
-      "plaza|NR,VA,TK,IO,BL",   // 0 hits
-      "parc|NR,VA,TK,IO,BL",   // 0 hits
-      "by|NR,VA,TK,IO,BL",   // 0 hits
+      "hotel|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF", // 8 hits
+      "del|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",   // 17 hits
+      "les|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",   // 5 hits
+      "plaza|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",   // 0 hits
+      "parc|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",   // 0 hits
+      "by|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",   // 0 hits
   };
 
   static final String[] SMALL_MEDIUM = new String[] {
-      "channel|NR,VA,TK,IO,BL",   // 4 hits
-      "centre|NR,VA,TK,IO,BL",   // 1 hits
-      "st|NR,VA,TK,IO,BL",   // 3 hits
-      "imperial|NR,VA,TK,IO,BL",   // 0 hits
-      "silent|NR,VA,TK,IO,BL",   // 0 hits
-      "sant|NR,VA,TK,IO,BL",   // 0 hits
-      "andorra|NR,VA,TK,IO,BL",   // 0 hits
+      "channel|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",   // 4 hits
+      "centre|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",   // 1 hits
+      "st|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",   // 3 hits
+      "imperial|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",   // 0 hits
+      "silent|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",   // 0 hits
+      "sant|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",   // 0 hits
+      "andorra|YU,AN,CS,PN,BV,CC,SM,NF,CX,HM,MC,NR,VA,TK,IO,BL,IM,MO,SX,MF",   // 0 hits
   };
 
   static final String[] BIG_PK = new String[] {
@@ -324,8 +340,8 @@ public class TiSBench {
 //      Query q1 = new TermInSetQuery(filterField, filterTerms);
 //      Query q2 = new DocValuesTermsQuery(filterField, filterTerms);
 //      Query q = new IndexOrDocValuesQuery(q1, q2);
-//      Query q = new TermInSetQuery(filterField, filterTerms);
-      Query q = new DocValuesTermsQuery(filterField, filterTerms);
+      Query q = new TermInSetQuery(filterField, filterTerms);
+//      Query q = new DocValuesTermsQuery(filterField, filterTerms);
       builder.add(new BooleanClause(q, BooleanClause.Occur.MUST));
       if (doCount) {
         int hits = searcher.count(builder.build());

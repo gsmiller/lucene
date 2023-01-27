@@ -68,6 +68,10 @@ import org.apache.lucene.util.automaton.Operations;
 
 /** TODO: javadoc */
 public class TermInSetQuery extends Query {
+  // TODO: tunable coefficients. need to actually tune them (or maybe these are too complex and not
+  // useful)
+  private static final double J = 100.0;
+  private static final double K = 8.0;
   // number of terms we'll "pre-seek" to validate; limits heap if there are many terms
   private static final int PRE_SEEK_TERM_LIMIT = 16;
   // postings lists under this threshold will always be "pre-processed" into a bitset
@@ -257,30 +261,28 @@ public class TermInSetQuery extends Query {
               return postingsScorer(reader, t.getDocCount(), t.iterator(), null);
             }
 
-            // If there are no postings, we have to use doc values:
-            if (t == null) {
-              return docValuesScorer(dv);
-            }
-
             // Number of possible candidates that need filtering:
-            final long candidateSize = Math.min(leadCost, dv.cost());
-
+            long candidateSize = Math.min(leadCost, dv.cost());
+            long candidateSizeThreshold = candidateSize;
             if (isPrimaryKeyField) {
-              if (termData.size() > (candidateSize << 3)) {
-                return docValuesScorer(dv);
-              }
-            } else {
-              return postingsScorer(context.reader(), t.getDocCount(), t.iterator(), null);
+              candidateSizeThreshold <<= 3;
             }
 
-            if (termData.size() > (candidateSize << 3)) {
+            if (termData.size() > candidateSizeThreshold) {
               // If the number of terms is > the number of candidates, DV should perform better.
               // TODO: This assumes all terms are present in the segment. If the actual number of
               // found terms in the segment is significantly smaller, this can be the wrong
-              // decision. Maybe we can do better? Possible bloom filter application? This is also
-              // why we special-case primary-key fields, since it's likely many will not be present
-              // in any given segment:
+              // decision. Maybe we can do better? Possible bloom filter application?
               return docValuesScorer(dv);
+            }
+
+            if (t == null) {
+              // If there are no postings, we have to use doc values:
+              return docValuesScorer(dv);
+            }
+
+            if (isPrimaryKeyField) {
+              return postingsScorer(reader, t.getDocCount(), t.iterator(), null);
             }
 
             // Begin estimating the postings-approach cost term-by-term, with a limit on the
@@ -322,7 +324,7 @@ public class TermInSetQuery extends Query {
               // by candidateSize, we chose to use it if expectedAdvances grows beyond a certain
               // point:
               expectedAdvances += Math.min(termDocFreq, candidateSize);
-              if (expectedAdvances > (candidateSize << 3)) {
+              if (expectedAdvances > candidateSizeThreshold) {
                 return docValuesScorer(dv);
               }
 

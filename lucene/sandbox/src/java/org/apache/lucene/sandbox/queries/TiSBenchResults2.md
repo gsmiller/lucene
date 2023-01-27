@@ -1,10 +1,15 @@
+## Goals
+1. Gather some data on when postings vs. doc-values are efficient in evaluating a term-in-set clause.
+2. Determine if a custom, self-optimizing, term-in-set query provides any benefits over the existing
+   `IndexOrDocValuesQuery` on top of the existing `TermInSetQuery` + `DocValuesTermsQuery`.
+
 ## Setup
 Benchmarks run against an index using `allCountries.txt` geonames data. Index created with:
 * "name" field that indexed the parsed name of each record
 * "cc" field that indexed the country code ID for each record (single valued)
 * "id" field that indexed the unique ID for each record (single valued)
 
-Each benchmark query "lead" with a single term matching against the "name" field and included a required conjunction
+Each benchmark query "leads" with a single term matching against the "name" field and included a required conjunction
 over a disjunction of country codes (e.g., a "term-in-set" query that required one of the specified country codes
 for each hit to be considered a match). Details on the distributions of these terms for each task are below, followed by
 the results.
@@ -43,7 +48,6 @@ field-level stats when deciding which approach to take, starts to peek at indivi
 #### Country Code filter term counts:
 #### High cost terms
 NOTE: First 10 used for "low cardinality" tasks, all 20 used for "high cardinality"
-
 * 2240232 US
 * 874153 CN
 * 649062 IN
@@ -67,7 +71,6 @@ NOTE: First 10 used for "low cardinality" tasks, all 20 used for "high cardinali
 
 #### Low cost terms
 NOTE: First 10 used for "low cardinality" tasks, all 20 used for "high cardinality"
-
 *  1 YU
 *  2 AN
 *  2 CS
@@ -94,7 +97,10 @@ In general, the proposed `TermInSetQuery` tends to perform at least as well as `
 some specific cases. These cases are where `IndexOrDocValuesQuery` incorrectly assumes a doc values approach will be
 better after looking at field-level stats, and the proposed `TermInSetQuery` makes a more informed decision to use
 doc values after loading some term-level stats. Primary-key cases also seem to perform significantly better with
-the proposed `TermInSetQuery`.
+the proposed `TermInSetQuery`, as the existing `IndexOrDocValuesQuery` query sometimes incorrectly decides to use a
+doc-values approach when postings would be better (they almost always are better for primary keys). This is because
+the `#cost()` estimation of `TermInSetQuery`, while specialized for primary-key cases, sort of assumes that all terms
+will occur in the segment, which is probably quite wrong for primary key cases.
 
 ### All Country Code Filter Terms
 * Term-in-set cardinality: 254 terms
@@ -149,15 +155,8 @@ field-level stats, while the proposed TiS query uses term-level stats.
 
 Here we see that our current TiS is better for "large" lead terms, but DV is best for "medium" and "small" leads.
 Because the number of filter terms is low (< 16 specifically), our current TiSQuery gets rewritten to a boolean query.
-Based on its cost estimation, which looks at the actual term-stats, IndexOrDV chooses to always use DV, which is
-less-than ideal, particularly for the "large" lead case (but the correct choice for the "small/medium" lead cases). Our
-proposed TiSQuery makes the same "mistakes" as our current IndexOrDV query as it's also looking at term-level stats,
-and decides DV should be better in all cases. I think this is just a situation where it's "unexpected" based on index
-stats that a postings-approach would be better given the high cost across the terms, but the arrangement of the docs
-in the postings relative to the lead term just happens to work out in a bit of a surprising way.
-
-NOCOMMIT: double check
-
+This means it will estimate its cost based on the actual term-level stats, just like our proposed TiSQuery, so they're
+both pretty similar.
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
 |--------------|------------------|-------------------|------------------|
@@ -177,9 +176,7 @@ This is an interesting case for IndexOrDV. While IndexOrDV generally uses field-
 to get it "wrong" in this case (and use DV due to the over-estimate on cost at the field-level), the "index" query
 (TiSQuery) get rewritten to a standard BooleanQuery as there are fewer than 16 terms, and provides a more accurate
 cost by actually seeking the 16 terms and looking at term-level statistics. So IndexOrDV correctly chooses to use
-postings, but our proposed TiS implementation also correctly chooses to use postings and is a bit more efficient, likely
-explained by the choice to pre-populate a bitset from all terms up front due to their small size vs. maintaining a
-heap and doing doc-at-a-time scoring (as with the standard BooleanQuery that the current TiSQuery rewrites to).
+postings, like our proposed TiSQuery.
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
 |--------------|------------------|-------------------|------------------|
@@ -194,14 +191,11 @@ heap and doing doc-at-a-time scoring (as with the standard BooleanQuery that the
 * Term-in-set cost: exactly 1 for each term / total cost of 500 across all terms
 
 In this situation, a postings-approach is generally better than a DV approach. Even though there are 500 individual
-filter terms, because the field is a PK, the overall cost is still relatively low (500 total), so it's generally
-better to use postings over DV, but in some cases--where the lead term has a very low cost--DV might out-perform.
-Both IndexOrDV and the proposed TiSQuery make different decisions between postings and DV depending on the cost of
-the specific lead term, and generally do the right thing. I suspect the reason IndexOrDV performs worse than
-the proposed TiSQuery has something to do with the 8x cost differential it uses to more strongly prefer postings,
-which may not really be the right thing to do all the time. The proposed TiSQuery is more aggressive about switching
-to DV when the lead cost is lower than the number of terms (500), while IndexOrDV will only do so when the lead cost
-is 8x cheaper than 500.
+filter terms, because the field is a PK, the number of terms in each segment is much lower. The cost estimation
+in our current TermInSetQuery has special-case logic for primary-key fields, but it overestimates the cost due to
+this issue, meaning IndexOrDV is incorrectly choosing to use DV. Our proposed TiS approach does a better job, but
+is still using DVs in some cases due to the heuristics not being perfect (confirmed through profiling). We can probably
+tune to be better here.
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
 |--------------|------------------|-------------------|------------------|
@@ -215,9 +209,7 @@ is 8x cheaper than 500.
 * Term-in-set cardinality: 20 terms
 * Term-in-set cost: exactly 1 for each term / total cost of 20 across all terms
 
-This is a similar story to above, but postings outperforms DV in general even more due to the lower cardinality of
-the filter terms. Because of the 8x multiplier in IndexOrDV, it _never_ chooses a DV approach, while the proposed TiS
-query does occasionally, which probably accounts for the performance benefit.
+This is a similar story to above, but our proposed TiSQuery gets it right more often, producing better results.
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
 |--------------|------------------|-------------------|------------------|
@@ -231,8 +223,7 @@ query does occasionally, which probably accounts for the performance benefit.
 * Term-in-set cardinality: 10 terms
 * Term-in-set cost: exactly 1 for each term / total cost of 10 across all terms
 
-This is yet again the same story as above. IndexOrDV always uses postings, while the proposed TiSQuery does sometimes
-use DV, which is better in some cases, so it outperforms.
+This is yet again the same story as above.
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
 |--------------|------------------|-------------------|------------------|

@@ -68,10 +68,6 @@ import org.apache.lucene.util.automaton.Operations;
 
 /** TODO: javadoc */
 public class TermInSetQuery extends Query {
-  // TODO: tunable coefficients. need to actually tune them (or maybe these are too complex and not
-  // useful)
-  private static final double J = 100.0;
-  private static final double K = 8.0;
   // number of terms we'll "pre-seek" to validate; limits heap if there are many terms
   private static final int PRE_SEEK_TERM_LIMIT = 16;
   // postings lists under this threshold will always be "pre-processed" into a bitset

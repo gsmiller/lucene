@@ -164,7 +164,7 @@ NOCOMMIT: double check
 | Current TiS  | 7.59             | 3.97              | 2.63             |
 | DV           | 9.45             | 3.89              | 1.55             |
 | IndexOrDV    | 8.79             | 4.22              | 2.16             |
-| Proposed TiS | 12.13            | 5.45              | 2.31             |
+| Proposed TiS | 11.47            | 5.15              | 2.20             |
 
 
 ### Low Cardinality + Low Cost Country Code Filter Terms
@@ -208,7 +208,7 @@ is 8x cheaper than 500.
 | Current TiS  | 17.62            | 25.93             | 25.40            |
 | DV           | 53.36            | 65.10             | 61.45            |
 | IndexOrDV    | 56.48            | 76.43             | 70.72            |
-| Proposed TiS | 21.24            | 43.99             | 51.88            |
+| Proposed TiS | 20.83            | 42.54             | 49.83            |
 
 
 ### Medium Cardinality PK Filter Terms
@@ -224,7 +224,7 @@ query does occasionally, which probably accounts for the performance benefit.
 | Current TiS  | 1.84             | 2.71              | 2.79             |
 | DV           | 13.00            | 8.03              | 5.64             |
 | IndexOrDV    | 4.14             | 6.15              | 6.27             |
-| Proposed TiS | 1.63             | 2.66              | 2.88             |
+| Proposed TiS | 1.52             | 2.52              | 2.73             |
 
 
 ### Low Cardinality PK Filter Terms

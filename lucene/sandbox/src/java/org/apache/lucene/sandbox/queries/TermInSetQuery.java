@@ -261,26 +261,32 @@ public class TermInSetQuery extends Query {
               return postingsScorer(reader, t.getDocCount(), t.iterator(), null);
             }
 
+            // If there are no postings, we have to use doc values:
+            if (t == null) {
+              return docValuesScorer(dv);
+            }
+
             // Number of possible candidates that need filtering:
             long candidateSize = Math.min(leadCost, dv.cost());
-            long candidateSizeThreshold = candidateSize;
-            if (isPrimaryKeyField) {
-              candidateSizeThreshold <<= 3;
-            }
+
+            // Establish a threshold for switching to doc values. Give postings a significant
+            // advantage for the primary-key case, since many of the primary-key terms may not
+            // actually be in this segment. The 8x factor is arbitrary, based on IndexOrDVQuery,
+            // but has performed well in benchmarks:
+            long candidateSizeThreshold = isPrimaryKeyField ? candidateSize << 3 : candidateSize;
 
             if (termData.size() > candidateSizeThreshold) {
               // If the number of terms is > the number of candidates, DV should perform better.
               // TODO: This assumes all terms are present in the segment. If the actual number of
               // found terms in the segment is significantly smaller, this can be the wrong
-              // decision. Maybe we can do better? Possible bloom filter application?
+              // decision. Maybe we can do better? Possible bloom filter application? This is
+              // why we special-case primary-key cases above.
               return docValuesScorer(dv);
             }
 
-            if (t == null) {
-              // If there are no postings, we have to use doc values:
-              return docValuesScorer(dv);
-            }
-
+            // For a primary-key field, at this point, it's highly likely that a postings-based
+            // approach is the right solution as docIDs will be pulsed. Go straight to a postings-
+            // solution:
             if (isPrimaryKeyField) {
               return postingsScorer(reader, t.getDocCount(), t.iterator(), null);
             }

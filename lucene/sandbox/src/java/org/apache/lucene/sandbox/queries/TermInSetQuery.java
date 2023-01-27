@@ -68,10 +68,6 @@ import org.apache.lucene.util.automaton.Operations;
 
 /** TODO: javadoc */
 public class TermInSetQuery extends Query {
-  // TODO: tunable coefficients. need to actually tune them (or maybe these are too complex and not
-  // useful)
-  private static final double J = 1.0;
-  private static final double K = 1.0;
   // number of terms we'll "pre-seek" to validate; limits heap if there are many terms
   private static final int PRE_SEEK_TERM_LIMIT = 16;
   // postings lists under this threshold will always be "pre-processed" into a bitset
@@ -231,17 +227,24 @@ public class TermInSetQuery extends Query {
         }
 
         // Estimate cost:
+        final long sumDocFreq;
+        final long indexedTermCount;
         final long cost;
         if (t == null) {
+          sumDocFreq = -1;
+          indexedTermCount = -1;
           cost = dv.cost();
         } else {
-          long potentialExtraCost = t.getSumDocFreq();
-          final long indexedTermCount = t.size();
+          sumDocFreq = t.getSumDocFreq();
+          indexedTermCount = t.size();
+          long potentialExtraCost = sumDocFreq;
           if (indexedTermCount != -1) {
             potentialExtraCost -= indexedTermCount;
           }
           cost = termData.size() + potentialExtraCost;
         }
+
+        final boolean isPrimaryKeyField = indexedTermCount != -1 && sumDocFreq == indexedTermCount;
 
         return new ScorerSupplier() {
 
@@ -254,89 +257,103 @@ public class TermInSetQuery extends Query {
               return postingsScorer(reader, t.getDocCount(), t.iterator(), null);
             }
 
+            // If there are no postings, we have to use doc values:
+            if (t == null) {
+              return docValuesScorer(dv);
+            }
+
             // Number of possible candidates that need filtering:
             long candidateSize = Math.min(leadCost, dv.cost());
 
-            if (termData.size() > J * candidateSize) {
+            // Establish a threshold for switching to doc values. Give postings a significant
+            // advantage for the primary-key case, since many of the primary-key terms may not
+            // actually be in this segment. The 8x factor is arbitrary, based on IndexOrDVQuery,
+            // but has performed well in benchmarks:
+            long candidateSizeThreshold = isPrimaryKeyField ? candidateSize << 3 : candidateSize;
+
+            if (termData.size() > candidateSizeThreshold) {
               // If the number of terms is > the number of candidates, DV should perform better.
               // TODO: This assumes all terms are present in the segment. If the actual number of
               // found terms in the segment is significantly smaller, this can be the wrong
-              // decision. Maybe we can do better? Possible bloom filter application?
+              // decision. Maybe we can do better? Possible bloom filter application? This is
+              // why we special-case primary-key cases above.
               return docValuesScorer(dv);
-            } else {
-              if (t == null) {
-                // If there are no postings, we have to use doc values:
+            }
+
+            // For a primary-key field, at this point, it's highly likely that a postings-based
+            // approach is the right solution as docIDs will be pulsed. Go straight to a postings-
+            // solution:
+            if (isPrimaryKeyField) {
+              return postingsScorer(reader, t.getDocCount(), t.iterator(), null);
+            }
+
+            // Begin estimating the postings-approach cost term-by-term, with a limit on the
+            // total number of terms we check. If we reach the limit and a postings-approach
+            // still seems cheaper than a DV approach, we'll use it. The term limit both
+            // ensures we don't do too much wasted term seeking work if we end up using DVs,
+            // and also limits our heap usage since we keep track of term states for all the
+            // terms:
+            long expectedAdvances = 0;
+            int visitedTermCount = 0;
+            int foundTermCount = 0;
+            int fieldDocCount = t.getDocCount();
+            TermsEnum termsEnum = t.iterator();
+            // Note: We can safely cast termData.size() to an int here since all the terms
+            // originally came into the ctor in a Collection:
+            List<TermState> termStates =
+                new ArrayList<>(Math.min(PRE_SEEK_TERM_LIMIT, Math.toIntExact(termData.size())));
+            TermState lastTermState = null;
+            BytesRefBuilder lastTerm = null;
+            PrefixCodedTerms.TermIterator termIterator = termData.iterator();
+            for (BytesRef term = termIterator.next();
+                 term != null && visitedTermCount < PRE_SEEK_TERM_LIMIT;
+                 term = termIterator.next(), visitedTermCount++) {
+              if (termsEnum.seekExact(term) == false) {
+                // Keep track that the term wasn't found:
+                termStates.add(null);
+                continue;
+              }
+
+              // If we find a "completely dense" postings list, we can use it directly:
+              int termDocFreq = termsEnum.docFreq();
+              if (fieldDocCount == termDocFreq) {
+                PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
+                return scorerFor(postings);
+              }
+
+              // As expectedAdvances grows, it becomes more-and-more likely a doc-values approach
+              // will be more cost-effective. Since the cost of a doc-values approach is bound
+              // by candidateSize, we chose to use it if expectedAdvances grows beyond a certain
+              // point:
+              expectedAdvances += Math.min(termDocFreq, candidateSize);
+              if (expectedAdvances > candidateSizeThreshold) {
                 return docValuesScorer(dv);
               }
 
-              // Begin estimating the postings-approach cost term-by-term, with a limit on the
-              // total number of terms we check. If we reach the limit and a postings-approach
-              // still seems cheaper than a DV approach, we'll use it. The term limit both
-              // ensures we don't do too much wasted term seeking work if we end up using DVs,
-              // and also limits our heap usage since we keep track of term states for all the
-              // terms:
-              long expectedAdvances = 0;
-              int visitedTermCount = 0;
-              int foundTermCount = 0;
-              int fieldDocCount = t.getDocCount();
-              TermsEnum termsEnum = t.iterator();
-              // Note: We can safely cast termData.size() to an int here since all the terms
-              // originally came into the ctor in a Collection:
-              List<TermState> termStates =
-                  new ArrayList<>(Math.min(PRE_SEEK_TERM_LIMIT, Math.toIntExact(termData.size())));
-              TermState lastTermState = null;
-              BytesRefBuilder lastTerm = null;
-              PrefixCodedTerms.TermIterator termIterator = termData.iterator();
-              for (BytesRef term = termIterator.next();
-                  term != null && visitedTermCount < PRE_SEEK_TERM_LIMIT;
-                  term = termIterator.next(), visitedTermCount++) {
-                if (termsEnum.seekExact(term) == false) {
-                  // Keep track that the term wasn't found:
-                  termStates.add(null);
-                  continue;
-                }
-
-                // If we find a "completely dense" postings list, we can use it directly:
-                int termDocFreq = termsEnum.docFreq();
-                if (fieldDocCount == termDocFreq) {
-                  PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
-                  return scorerFor(postings);
-                }
-
-                // As expectedAdvances grows, it becomes more-and-more likely a doc-values approach
-                // will be more cost-effective. Since the cost of a doc-values approach is bound
-                // by candidateSize, we chose to use it if expectedAdvances grows beyond a certain
-                // point:
-                expectedAdvances += Math.min(termDocFreq, candidateSize);
-                if (expectedAdvances > K * candidateSize) {
-                  return docValuesScorer(dv);
-                }
-
-                foundTermCount++;
-                lastTermState = termsEnum.termState();
-                if (lastTerm == null) {
-                  lastTerm = new BytesRefBuilder();
-                }
-                lastTerm.copyBytes(term);
-                termStates.add(lastTermState);
+              foundTermCount++;
+              lastTermState = termsEnum.termState();
+              if (lastTerm == null) {
+                lastTerm = new BytesRefBuilder();
               }
-
-              if (visitedTermCount == termData.size()) {
-                // If we visited all the terms, we do one more check for some special-cases:
-                if (foundTermCount == 0) {
-                  return emptyScorer();
-                } else if (foundTermCount == 1) {
-                  termsEnum.seekExact(lastTerm.get(), lastTermState);
-                  PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
-                  return scorerFor(postings);
-                }
-              }
-
-              // If we reach this point, it's likely a postings-based approach will prove more
-              // cost-effective:
-              return postingsScorer(
-                  context.reader(), fieldDocCount, termsEnum, termStates.iterator());
+              lastTerm.copyBytes(term);
+              termStates.add(lastTermState);
             }
+
+            if (visitedTermCount == termData.size()) {
+              // If we visited all the terms, we do one more check for some special-cases:
+              if (foundTermCount == 0) {
+                return emptyScorer();
+              } else if (foundTermCount == 1) {
+                termsEnum.seekExact(lastTerm.get(), lastTermState);
+                PostingsEnum postings = termsEnum.postings(null, PostingsEnum.NONE);
+                return scorerFor(postings);
+              }
+            }
+
+            // If we reach this point, it's likely a postings-based approach will prove more
+            // cost-effective:
+            return postingsScorer(
+                context.reader(), fieldDocCount, termsEnum, termStates.iterator());
           }
 
           @Override

@@ -24,7 +24,7 @@ import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.packed.PackedInts;
 
-final class LongHashSet extends AbstractSet<Long> implements Accountable {
+public final class LongHashSet extends AbstractSet<Long> implements Accountable {
   private static final long BASE_RAM_BYTES =
       RamUsageEstimator.shallowSizeOfInstance(LongHashSet.class);
 
@@ -36,7 +36,7 @@ final class LongHashSet extends AbstractSet<Long> implements Accountable {
   final int size;
   final int hashCode;
 
-  LongHashSet(long[] values) {
+  public LongHashSet(long[] values) {
     int tableSize = Math.toIntExact(values.length * 3L / 2);
     tableSize = 1 << PackedInts.bitsRequired(tableSize); // make it a power of 2
     assert tableSize >= values.length * 3L / 2;
@@ -74,7 +74,7 @@ final class LongHashSet extends AbstractSet<Long> implements Accountable {
     }
   }
 
-  boolean contains(long l) {
+  public boolean contains(long l) {
     if (l == MISSING) {
       return hasMissingValue;
     }

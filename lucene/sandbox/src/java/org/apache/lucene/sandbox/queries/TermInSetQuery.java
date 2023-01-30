@@ -18,10 +18,13 @@ package org.apache.lucene.sandbox.queries;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.SortedSet;
+
+import org.apache.lucene.document.LongHashSet;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.FieldInfo;
@@ -540,20 +543,28 @@ public class TermInSetQuery extends Query {
       }
 
       private Scorer docValuesScorer(SortedSetDocValues dv) throws IOException {
-        boolean hasAtLeastOneTerm = false;
-        LongBitSet ords = new LongBitSet(dv.getValueCount());
+        long[] rawOrds = new long[(int) termData.size()];
         PrefixCodedTerms.TermIterator termIterator = termData.iterator();
+        int i = 0;
         for (BytesRef term = termIterator.next(); term != null; term = termIterator.next()) {
           long ord = dv.lookupTerm(term);
           if (ord >= 0) {
-            ords.set(ord);
-            hasAtLeastOneTerm = true;
+            rawOrds[i] = ord;
+            i++;
           }
         }
 
-        if (hasAtLeastOneTerm == false) {
+        if (i == 0) {
           return emptyScorer();
         }
+
+        long[] copy;
+        if (i == termData.size()) {
+          copy = rawOrds;
+        } else {
+          copy = Arrays.copyOf(rawOrds, i);
+        }
+        LongHashSet ords = new LongHashSet(copy);
 
         TwoPhaseIterator it;
         SortedDocValues singleton = DocValues.unwrapSingleton(dv);
@@ -562,7 +573,7 @@ public class TermInSetQuery extends Query {
               new TwoPhaseIterator(singleton) {
                 @Override
                 public boolean matches() throws IOException {
-                  return ords.get(singleton.ordValue());
+                  return ords.contains(singleton.ordValue());
                 }
 
                 @Override
@@ -576,7 +587,7 @@ public class TermInSetQuery extends Query {
                 @Override
                 public boolean matches() throws IOException {
                   for (int i = 0; i < dv.docValueCount(); i++) {
-                    if (ords.get(dv.nextOrd())) {
+                    if (ords.contains(dv.nextOrd())) {
                       return true;
                     }
                   }

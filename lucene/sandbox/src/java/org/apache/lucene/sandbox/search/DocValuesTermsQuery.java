@@ -21,6 +21,8 @@ import java.util.AbstractList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Objects;
+
+import org.apache.lucene.document.LongHashSet;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
@@ -193,19 +195,27 @@ public class DocValuesTermsQuery extends Query implements Accountable {
       @Override
       public Scorer scorer(LeafReaderContext context) throws IOException {
         final SortedSetDocValues values = DocValues.getSortedSet(context.reader(), field);
-        final LongBitSet bits = new LongBitSet(values.getValueCount());
-        boolean matchesAtLeastOneTerm = false;
+        long[] rawOrds = new long[(int) termData.size()];
         TermIterator iterator = termData.iterator();
+        int i = 0;
         for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
           final long ord = values.lookupTerm(term);
           if (ord >= 0) {
-            matchesAtLeastOneTerm = true;
-            bits.set(ord);
+            rawOrds[i] = ord;
+            i++;
           }
         }
-        if (matchesAtLeastOneTerm == false) {
+        if (i == 0) {
           return null;
         }
+        long[] copy;
+        if (i == termData.size()) {
+          copy = rawOrds;
+        } else {
+          copy = Arrays.copyOf(rawOrds, i);
+        }
+        final LongHashSet ords = new LongHashSet(copy);
+
         return new ConstantScoreScorer(
             this,
             score(),
@@ -215,7 +225,7 @@ public class DocValuesTermsQuery extends Query implements Accountable {
               @Override
               public boolean matches() throws IOException {
                 for (int i = 0; i < values.docValueCount(); i++) {
-                  if (bits.get(values.nextOrd())) {
+                  if (ords.contains(values.nextOrd())) {
                     return true;
                   }
                 }

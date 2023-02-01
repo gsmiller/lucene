@@ -310,14 +310,14 @@ public class TiSBench {
     doc.add(combinedId);
     StringField combinedCC = new StringField("combined", "", Field.Store.NO);
     doc.add(combinedCC);
-    SortedDocValuesField idDv = new SortedDocValuesField("id", new BytesRef());
-    doc.add(idDv);
-    SortedDocValuesField ccDv = new SortedDocValuesField("cc", new BytesRef());
-    doc.add(ccDv);
-    SortedSetDocValuesField combinedIdDv = new SortedSetDocValuesField("combined", new BytesRef());
-    doc.add(combinedIdDv);
-    SortedSetDocValuesField combinedCCDv = new SortedSetDocValuesField("combined", new BytesRef());
-    doc.add(combinedCCDv);
+//    SortedDocValuesField idDv = new SortedDocValuesField("id", new BytesRef());
+//    doc.add(idDv);
+//    SortedDocValuesField ccDv = new SortedDocValuesField("cc", new BytesRef());
+//    doc.add(ccDv);
+//    SortedSetDocValuesField combinedIdDv = new SortedSetDocValuesField("combined", new BytesRef());
+//    doc.add(combinedIdDv);
+//    SortedSetDocValuesField combinedCCDv = new SortedSetDocValuesField("combined", new BytesRef());
+//    doc.add(combinedCCDv);
 
     String line = null;
     while ((line = reader.readLine()) != null) {

@@ -513,7 +513,7 @@ final class BooleanWeight extends Weight {
 
   @Override
   public boolean isCacheable(LeafReaderContext ctx) {
-    if (query.clauses().size() > TermInSetQuery.BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD) {
+    if (query.clauses().size() > 16) {
       // Disallow caching large boolean queries to not encourage users
       // to build large boolean queries as a workaround to the fact that
       // we disallow caching large TermInSetQueries.

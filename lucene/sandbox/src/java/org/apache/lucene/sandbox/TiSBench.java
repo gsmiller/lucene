@@ -34,6 +34,7 @@ import org.apache.lucene.search.IndexOrDocValuesQuery;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermInSetQuery;
+import org.apache.lucene.search.TermInSetQueryOriginal;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.BytesRef;
@@ -352,9 +353,9 @@ public class TiSBench {
       builder.add(new BooleanClause(new TermQuery(new Term("name", lead)), BooleanClause.Occur.MUST));
       Query filterQuery;
       switch (approach) {
-        case CLASSIC_TIS -> filterQuery = new org.apache.lucene.search.TermInSetQuery(filterField, terms);
+        case CLASSIC_TIS -> filterQuery = new TermInSetQueryOriginal(filterField, terms);
         case DV -> filterQuery = new DocValuesTermsQuery(filterField, terms);
-        case INDEX_OR_DV -> filterQuery = new IndexOrDocValuesQuery(new org.apache.lucene.search.TermInSetQuery(filterField, terms), new DocValuesTermsQuery(filterField, terms));
+        case INDEX_OR_DV -> filterQuery = new IndexOrDocValuesQuery(new TermInSetQueryOriginal(filterField, terms), new DocValuesTermsQuery(filterField, terms));
         case PROPOSED_TIS -> filterQuery = new TermInSetQuery(filterField, terms);
         default -> throw new IllegalStateException("no");
       }

@@ -31,12 +31,14 @@ import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.PrefixCodedTerms;
+import org.apache.lucene.index.PrefixCodedTerms.TermIterator;
 import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.TermState;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
+import org.apache.lucene.search.BooleanClause.Occur;
 import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.Bits;
@@ -78,6 +80,8 @@ import org.apache.lucene.util.automaton.Operations;
 public class TermInSetQuery extends Query implements Accountable {
   private static final long BASE_RAM_BYTES_USED =
       RamUsageEstimator.shallowSizeOfInstance(TermInSetQuery.class);
+  // Same threshold as MultiTermQueryConstantScoreWrapper
+  static final int BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD = 16;
   // number of terms we'll "pre-seek" to validate; limits heap if there are many terms
   private static final int PRE_SEEK_TERM_LIMIT = 16;
   // postings lists under this threshold will always be "pre-processed" into a bitset
@@ -96,7 +100,7 @@ public class TermInSetQuery extends Query implements Accountable {
     // already sorted if we are a SortedSet with natural order
     boolean sorted =
         terms instanceof SortedSet && ((SortedSet<BytesRef>) terms).comparator() == null;
-    if (!sorted) {
+    if (sorted == false) {
       ArrayUtil.timSort(sortedTerms);
     }
     PrefixCodedTerms.Builder builder = new PrefixCodedTerms.Builder();
@@ -122,20 +126,22 @@ public class TermInSetQuery extends Query implements Accountable {
 
   @Override
   public Query rewrite(IndexSearcher indexSearcher) throws IOException {
-//    if (termData.size() < 16) {
-//      BooleanQuery.Builder builder = new BooleanQuery.Builder();
-//      PrefixCodedTerms.TermIterator it = termData.iterator();
-//      for (BytesRef term = it.next(); term != null; term = it.next()) {
-//        builder.add(new TermQuery(new Term(field, term)), BooleanClause.Occur.SHOULD);
-//      }
-//      return new ConstantScoreQuery(builder.build());
-//    }
     if (termData.size() == 0) {
       return new MatchNoDocsQuery();
     }
     if (termData.size() == 1) {
       Term term = new Term(field, termData.iterator().next());
       return new ConstantScoreQuery(new TermQuery(term));
+    }
+    final int threshold =
+        Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
+    if (termData.size() <= threshold) {
+      BooleanQuery.Builder bq = new BooleanQuery.Builder();
+      TermIterator iterator = termData.iterator();
+      for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
+        bq.add(new TermQuery(new Term(iterator.field(), BytesRef.deepCopyOf(term))), Occur.SHOULD);
+      }
+      return new ConstantScoreQuery(bq.build());
     }
     return super.rewrite(indexSearcher);
   }
@@ -155,7 +161,7 @@ public class TermInSetQuery extends Query implements Accountable {
 
   // TODO: this is extremely slow. we should not be doing this.
   private ByteRunAutomaton asByteRunAutomaton() {
-    PrefixCodedTerms.TermIterator iterator = termData.iterator();
+    TermIterator iterator = termData.iterator();
     List<Automaton> automata = new ArrayList<>();
     for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
       automata.add(Automata.makeBinary(term));
@@ -193,7 +199,7 @@ public class TermInSetQuery extends Query implements Accountable {
     builder.append(field);
     builder.append(":(");
 
-    PrefixCodedTerms.TermIterator iterator = termData.iterator();
+    TermIterator iterator = termData.iterator();
     boolean first = true;
     for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
       if (first == false) {
@@ -224,35 +230,30 @@ public class TermInSetQuery extends Query implements Accountable {
 
       @Override
       public Matches matches(LeafReaderContext context, int doc) throws IOException {
-        final LeafReader reader = context.reader();
-        final Terms terms = reader.terms(field);
-        if (terms != null && terms.hasPositions()) {
-          return MatchesUtils.forField(
-              field,
-              () ->
-                  DisjunctionMatchesIterator.fromTermsEnum(
-                      context, doc, getQuery(), field, termData.iterator()));
+        Terms terms = Terms.getTerms(context.reader(), field);
+        if (terms.hasPositions() == false) {
+          return super.matches(context, doc);
         }
-        return super.matches(context, doc);
+        return MatchesUtils.forField(
+            field,
+            () ->
+                DisjunctionMatchesIterator.fromTermsEnum(
+                    context, doc, getQuery(), field, termData.iterator()));
       }
 
       // TODO: not tested or benchmarked yet
       @Override
       public BulkScorer bulkScorer(LeafReaderContext context) throws IOException {
+        // Implement term-at-a-time scoring for top-level scoring as it is likely more efficient
+        // than doc-at-a-time:
         final LeafReader reader = context.reader();
-        final Terms t = reader.terms(field);
-        if (t == null) {
-          return super.bulkScorer(context);
-        }
-
-        // For top-level bulk scoring, it should be better to do term-at-a-time scoring with
-        // postings:
+        final Terms t = Terms.getTerms(reader, field);
         final TermsEnum termsEnum = t.iterator();
         int fieldDocCount = t.getDocCount();
         PostingsEnum singleton = null;
         PostingsEnum reuse = null;
         DocIdSetBuilder builder = null;
-        PrefixCodedTerms.TermIterator termIterator = termData.iterator();
+        TermIterator termIterator = termData.iterator();
         for (BytesRef term = termIterator.next(); term != null; term = termIterator.next()) {
           if (termsEnum.seekExact(term) == false) {
             continue;
@@ -284,7 +285,6 @@ public class TermInSetQuery extends Query implements Accountable {
         final long cost = it.cost();
 
         return new BulkScorer() {
-
           @Override
           public int score(LeafCollector collector, Bits acceptDocs, int min, int max)
               throws IOException {
@@ -326,17 +326,13 @@ public class TermInSetQuery extends Query implements Accountable {
 
       @Override
       public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
-        if (termData.size() <= 1) {
-          throw new IllegalStateException("Must call IndexSearcher#rewrite");
-        }
+        assert termData.size() > BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD;
 
         final LeafReader reader = context.reader();
         final FieldInfo fi = reader.getFieldInfos().fieldInfo(field);
-        if (fi == null) {
-          return null;
-        }
+        assert fi != null;
 
-        final Terms t = reader.terms(field);
+        final Terms t = Terms.getTerms(reader, field);
         final SortedSetDocValues dv;
         if (fi.getDocValuesType() == DocValuesType.SORTED
             || fi.getDocValuesType() == DocValuesType.SORTED_SET) {
@@ -345,28 +341,21 @@ public class TermInSetQuery extends Query implements Accountable {
           dv = null;
         }
 
-        // If the field doesn't exist in the segment, return null:
-        if (t == null && dv == null) {
-          return null;
+        // Cost estimation reasoning is:
+        //  1. Assume every query term matches at least one document (queryTermsCount).
+        //  2. Determine the total number of docs beyond the first one for each term.
+        //     That count provides a ceiling on the number of extra docs that could match beyond
+        //     that first one. (We omit the first since it's already been counted in #1).
+        // This approach still provides correct worst-case cost in general, but provides tighter
+        // estimates for primary-key-like fields. See: LUCENE-10207
+        final long queryTermsCount = termData.size();
+        final long sumDocFreq = t.getSumDocFreq();
+        final long indexedTermCount = t.size();
+        long potentialExtraCost = sumDocFreq;
+        if (indexedTermCount != -1) {
+          potentialExtraCost -= indexedTermCount;
         }
-
-        // Estimate cost:
-        final long sumDocFreq;
-        final long indexedTermCount;
-        final long cost;
-        if (t == null) {
-          sumDocFreq = -1;
-          indexedTermCount = -1;
-          cost = dv.cost();
-        } else {
-          sumDocFreq = t.getSumDocFreq();
-          indexedTermCount = t.size();
-          long potentialExtraCost = sumDocFreq;
-          if (indexedTermCount != -1) {
-            potentialExtraCost -= indexedTermCount;
-          }
-          cost = termData.size() + potentialExtraCost;
-        }
+        final long cost = queryTermsCount + potentialExtraCost;
 
         final boolean isPrimaryKeyField = indexedTermCount != -1 && sumDocFreq == indexedTermCount;
 
@@ -379,11 +368,6 @@ public class TermInSetQuery extends Query implements Accountable {
             // If there are no doc values indexed, we have to use a postings-based approach:
             if (dv == null) {
               return postingsScorer(reader, t.getDocCount(), t.iterator(), null);
-            }
-
-            // If there are no postings, we have to use doc values:
-            if (t == null) {
-              return docValuesScorer(dv);
             }
 
             // Number of possible candidates that need filtering:
@@ -428,7 +412,7 @@ public class TermInSetQuery extends Query implements Accountable {
                 new ArrayList<>(Math.min(PRE_SEEK_TERM_LIMIT, Math.toIntExact(termData.size())));
             TermState lastTermState = null;
             BytesRefBuilder lastTerm = null;
-            PrefixCodedTerms.TermIterator termIterator = termData.iterator();
+            TermIterator termIterator = termData.iterator();
             for (BytesRef term = termIterator.next();
                 term != null && visitedTermCount < PRE_SEEK_TERM_LIMIT;
                 term = termIterator.next(), visitedTermCount++) {
@@ -506,7 +490,7 @@ public class TermInSetQuery extends Query implements Accountable {
         PriorityQueue<DisiWrapper> unprocessedPq = null;
         DocIdSetBuilder processedPostings = null;
         PostingsEnum reuse = null;
-        PrefixCodedTerms.TermIterator termIterator = termData.iterator();
+        TermIterator termIterator = termData.iterator();
         for (BytesRef term = termIterator.next(); term != null; term = termIterator.next()) {
           // Use any term states we have:
           if (termStates != null && termStates.hasNext()) {

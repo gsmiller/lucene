@@ -49,6 +49,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
+// NOTE: Make sure to shuffle allCountries.txt prior to benchmarking, otherwise postings-based approaches
+// have a significant, artificial advantage due to the data already being sorted by country code.
 // java -cp "lucene/sandbox/build/libs/lucene-sandbox-10.0.0-SNAPSHOT.jar:lucene/core/build/libs/lucene-core-10.0.0-SNAPSHOT.jar" TiSBench.java /tmp/allCountries.txt /tmp/idx -1
 
 /** Benchmark set queries on 1M lines of Geonames. */
@@ -372,8 +374,8 @@ public class TiSBench {
         ccDv.setBytesValue(new BytesRef(values[8]));
         combinedIdDv.setBytesValue(new BytesRef(values[0]));
         combinedCCDv.setBytesValue(new BytesRef(values[8]));
-        iw.addDocument(doc);
       }
+      iw.addDocument(doc);
     }
   }
 
@@ -383,7 +385,6 @@ public class TiSBench {
     IndexSearcher searcher = new IndexSearcher(reader);
     searcher.setQueryCache(null); // benchmarking
 
-    Query query = null;
     List<BytesRef> terms = Arrays.stream(filterTerms.split(",")).map(BytesRef::new).toList();
     if (leads != null) {
       for (String lead : leads) {
@@ -391,32 +392,39 @@ public class TiSBench {
         builder.add(new BooleanClause(new TermQuery(new Term("name", lead)), BooleanClause.Occur.MUST));
         Query filterQuery;
         switch (approach) {
-          case CLASSIC_TIS -> filterQuery = new TermInSetQueryOriginal(filterField, terms);
+          case CLASSIC_TIS -> filterQuery = new org.apache.lucene.search.TermInSetQuery(filterField, terms);
           case DV -> filterQuery = new DocValuesTermsQuery(filterField, terms);
-          case INDEX_OR_DV -> filterQuery = new IndexOrDocValuesQuery(new TermInSetQueryOriginal(filterField, terms), new DocValuesTermsQuery(filterField, terms));
+          case INDEX_OR_DV -> filterQuery = new IndexOrDocValuesQuery(new org.apache.lucene.search.TermInSetQuery(filterField, terms), new DocValuesTermsQuery(filterField, terms));
           case PROPOSED_TIS -> filterQuery = new TermInSetQuery(filterField, terms);
           default -> throw new IllegalStateException("no");
         }
         builder.add(filterQuery, BooleanClause.Occur.MUST);
-        query = builder.build();
+
+        if (doCount) {
+          int hits = searcher.count(builder.build());
+          DUMMY += hits;
+        } else {
+          int hits = (int) searcher.search(builder.build(), 10).totalHits.value;
+          DUMMY += hits;
+        }
       }
     } else {
+      Query filterQuery;
       switch (approach) {
-        case CLASSIC_TIS -> query = new TermInSetQueryOriginal(filterField, terms);
-        case DV -> query = new DocValuesTermsQuery(filterField, terms);
-        case INDEX_OR_DV -> query = new IndexOrDocValuesQuery(new TermInSetQueryOriginal(filterField, terms), new DocValuesTermsQuery(filterField, terms));
-        case PROPOSED_TIS -> query = new TermInSetQuery(filterField, terms);
+        case CLASSIC_TIS -> filterQuery = new TermInSetQueryOriginal(filterField, terms);
+        case DV -> filterQuery = new DocValuesTermsQuery(filterField, terms);
+        case INDEX_OR_DV -> filterQuery = new IndexOrDocValuesQuery(new TermInSetQueryOriginal(filterField, terms), new DocValuesTermsQuery(filterField, terms));
+        case PROPOSED_TIS -> filterQuery = new TermInSetQuery(filterField, terms);
         default -> throw new IllegalStateException("no");
       }
-    }
 
-    assert query != null;
-    if (doCount) {
-      int hits = searcher.count(query);
-      DUMMY += hits;
-    } else {
-      int hits = (int) searcher.search(query, 10).totalHits.value;
-      DUMMY += hits;
+      if (doCount) {
+        int hits = searcher.count(filterQuery);
+        DUMMY += hits;
+      } else {
+        int hits = (int) searcher.search(filterQuery, 10).totalHits.value;
+        DUMMY += hits;
+      }
     }
   }
 

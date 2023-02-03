@@ -248,3 +248,56 @@ In this case, because there are fewer than 16 terms, the current TiS and propose
 | DV           | 12.22            | 7.82              | 5.73             | 99.97         |
 | IndexOrDV    | 3.61             | 5.41              | 5.93             | 0.53          |
 | Proposed TiS | 2.52             | 3.83              | 4.11             | 0.53          |
+
+## Benchmark Results with NO Doc Values
+To make sure this change won't significantly impact current `TermInSetQuery` users in a negative way--in the case where
+there is no parallel doc value field--I also ran the benchmark tool over all the same use-cases but with no doc values
+indexed. Results seem fine to me.
+
+### All Country Code Filter Terms
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 382.25           | 568.11            | 660.54           | 164.00        |
+| Proposed TiS | 380.30           | 296.28            | 218.90           | 112.23        |
+
+### Medium Cardinality + High Cost Country Code Filter Terms
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 174.77           | 253.66            | 293.24           | 91.98         |
+| Proposed TiS | 335.83           | 188.64            | 69.10            | 71.46         |
+
+### Medium Cardinality + Low Cost Country Code Filter Terms
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 2.53             | 2.77              | 2.68             | 0.26          |
+| Proposed TiS | 2.41             | 2.59              | 2.49             | 0.22          |
+
+### Low Cardinality + High Cost Country Code Filter Terms
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 236.95           | 132.33            | 43.68            | 93.73         |
+| Proposed TiS | 237.04           | 132.46            | 43.69            | 93.60         |
+
+### Low Cardinality + Low Cost Country Code Filter Terms
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 2.43             | 3.15              | 3.36             | 0.49          |
+| Proposed TiS | 2.43             | 3.14              | 3.36             | 0.49          |
+
+### High Cardinality PK Filter Terms
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 27.41            | 40.62             | 46.28            | 6.58          |
+| Proposed TiS | 27.31            | 40.45             | 46.11            | 6.54          |
+
+### Medium Cardinality PK Filter Terms
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 2.31             | 3.40              | 3.89             | 0.51          |
+| Proposed TiS | 1.83             | 2.67              | 3.06             | 0.32          |
+
+### Low Cardinality PK Filter Terms
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 1.66             | 2.49              | 2.86             | 0.34          |
+| Proposed TiS | 1.66             | 2.49              | 2.86             | 0.34          |

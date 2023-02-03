@@ -44,6 +44,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.LineNumberReader;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
@@ -55,8 +56,10 @@ import java.util.Locale;
 
 /** Benchmark set queries on 1M lines of Geonames. */
 public class TiSBench {
+  private static final boolean EXHAUSTIVE_SEARCH = true;
+  private static final boolean INDEX_DV = true;
 
-  public static void main(String args[]) throws Exception {
+  public static void main(String[] args) throws Exception {
     if (args.length != 3) {
       System.err.println("Usage: NumSetBenchmark /path/to/geonames.txt /path/to/index/dir doc_limit(or -1 means index all lines)");
       System.exit(2);
@@ -66,243 +69,28 @@ public class TiSBench {
     String indexPath = args[1];
     int docLimit = Integer.parseInt(args[2]);
 
-    IOUtils.rm(Paths.get(indexPath));
-    try (FSDirectory dir = FSDirectory.open(Paths.get(indexPath))) {
+    Path path = Paths.get(indexPath);
+    IOUtils.rm(path);
+    try (FSDirectory dir = FSDirectory.open(path)) {
       System.err.println("Now run indexing");
       IndexWriterConfig config = new IndexWriterConfig();
       try (IndexWriter iw = new IndexWriter(dir, config);
            LineNumberReader reader = new LineNumberReader(new InputStreamReader(Files.newInputStream(Paths.get(geonamesDataPath))))) {
         long t0 = System.nanoTime();
-        indexDocs(iw, reader, docLimit, true);
-        System.out.println(String.format(Locale.ROOT, "Indexing time: %d msec", (System.nanoTime() - t0) / 1_000_000));
+        indexDocs(iw, reader, docLimit);
+        System.out.printf(Locale.ROOT, "Indexing time: %d msec%n", (System.nanoTime() - t0) / 1_000_000);
       }
       System.err.println("Index files: " + Arrays.toString(dir.listAll()));
 
-      boolean exhaustiveSearch = true;
       try (DirectoryReader reader = DirectoryReader.open(dir)) {
-        System.out.println("### All Country Code Filter Terms");
-        System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|---|");
-        System.out.print("| Current TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, null, "cc", ALL_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| DV ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, null, "cc", ALL_CC_TERMS, Approach.DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| IndexOrDV ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, null, "cc", ALL_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| Proposed TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, null, "cc", ALL_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        System.out.println("|");
-
-        System.out.println("### Medium Cardinality + High Cost Country Code Filter Terms");
-        System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|---|");
-        System.out.print("| Current TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, null, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| DV ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, null, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| IndexOrDV ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, null, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| Proposed TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, null, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        System.out.println("|");
-
-        System.out.println("### Medium Cardinality + Low Cost Country Code Filter Terms");
-        System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|---|");
-        System.out.print("| Current TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, null, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| DV ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, null, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| IndexOrDV ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, null, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| Proposed TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, null, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        System.out.println("|");
-
-        System.out.println("### Low Cardinality + High Cost Country Code Filter Terms");
-        System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|---|");
-        System.out.print("| Current TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, null, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| DV ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, null, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| IndexOrDV ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, null, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| Proposed TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, null, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        System.out.println("|");
-
-        System.out.println("### Low Cardinality + Low Cost Country Code Filter Terms");
-        System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|---|");
-        System.out.print("| Current TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, null, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| DV ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, null, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| IndexOrDV ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, null, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| Proposed TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, null, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        System.out.println("|");
-
-        System.out.println("### High Cardinality PK Filter Terms");
-        System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|---|");
-        System.out.print("| Current TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, null, "id", HIGH_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| DV ");
-        doBench(reader, LARGE_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, null, "id", HIGH_CARDINALITY_PK_TERMS, Approach.DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| IndexOrDV ");
-        doBench(reader, LARGE_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, null, "id", HIGH_CARDINALITY_PK_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| Proposed TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, null, "id", HIGH_CARDINALITY_PK_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        System.out.println("|");
-
-        System.out.println("### Medium Cardinality PK Filter Terms");
-        System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|---|");
-        System.out.print("| Current TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, null, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| DV ");
-        doBench(reader, LARGE_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, null, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| IndexOrDV ");
-        doBench(reader, LARGE_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, null, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| Proposed TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, null, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        System.out.println("|");
-
-        System.out.println("### Low Cardinality PK Filter Terms");
-        System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|---|");
-        System.out.print("| Current TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        doBench(reader, null, "id", LOW_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| DV ");
-        doBench(reader, LARGE_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.DV, exhaustiveSearch);
-        doBench(reader, null, "id", LOW_CARDINALITY_PK_TERMS, Approach.DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| IndexOrDV ");
-        doBench(reader, LARGE_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        doBench(reader, null, "id", LOW_CARDINALITY_PK_TERMS, Approach.INDEX_OR_DV, exhaustiveSearch);
-        System.out.println("|");
-        System.out.print("| Proposed TiS ");
-        doBench(reader, LARGE_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, MEDIUM_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, SMALL_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        doBench(reader, null, "id", LOW_CARDINALITY_PK_TERMS, Approach.PROPOSED_TIS, exhaustiveSearch);
-        System.out.println("|");
+        benchTask(reader, "All Country Code Filter Terms", "cc", ALL_CC_TERMS);
+        benchTask(reader, "Medium Cardinality + High Cost Country Code Filter Terms", "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS);
+        benchTask(reader, "Medium Cardinality + Low Cost Country Code Filter Terms", "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS);
+        benchTask(reader, "Low Cardinality + High Cost Country Code Filter Terms", "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS);
+        benchTask(reader, "Low Cardinality + Low Cost Country Code Filter Terms", "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS);
+        benchTask(reader, "High Cardinality PK Filter Terms", "id", HIGH_CARDINALITY_PK_TERMS);
+        benchTask(reader, "Medium Cardinality PK Filter Terms", "id", MEDIUM_CARDINALITY_PK_TERMS);
+        benchTask(reader, "Low Cardinality PK Filter Terms", "id", LOW_CARDINALITY_PK_TERMS);
       }
     }
   }
@@ -314,23 +102,55 @@ public class TiSBench {
     PROPOSED_TIS
   }
 
-  static void doBench(IndexReader reader, String[] leads, String filterField, String filterTerms, Approach approach, boolean doCount) throws Exception {
+  private static void benchTask(DirectoryReader reader, String task, String filterField, String filterTerms) throws Exception {
+    System.out.println("### " + task);
+    System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
+    System.out.println("|---|---|---|---|---|");
+    System.out.print("| Current TiS ");
+    doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.CLASSIC_TIS);
+    doBench(reader, MEDIUM_NAME_TERMS, filterField, filterTerms, Approach.CLASSIC_TIS);
+    doBench(reader, SMALL_NAME_TERMS, filterField, filterTerms, Approach.CLASSIC_TIS);
+    doBench(reader, null, filterField, filterTerms, Approach.CLASSIC_TIS);
+    System.out.println("|");
+    if (INDEX_DV) {
+      System.out.print("| DV ");
+      doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.DV);
+      doBench(reader, MEDIUM_NAME_TERMS, filterField, filterTerms, Approach.DV);
+      doBench(reader, SMALL_NAME_TERMS, filterField, filterTerms, Approach.DV);
+      doBench(reader, null, filterField, filterTerms, Approach.DV);
+      System.out.println("|");
+      System.out.print("| IndexOrDV ");
+      doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.INDEX_OR_DV);
+      doBench(reader, MEDIUM_NAME_TERMS, filterField, filterTerms, Approach.INDEX_OR_DV);
+      doBench(reader, SMALL_NAME_TERMS, filterField, filterTerms, Approach.INDEX_OR_DV);
+      doBench(reader, null, filterField, filterTerms, Approach.INDEX_OR_DV);
+      System.out.println("|");
+    }
+    System.out.print("| Proposed TiS ");
+    doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.PROPOSED_TIS);
+    doBench(reader, MEDIUM_NAME_TERMS, filterField, filterTerms, Approach.PROPOSED_TIS);
+    doBench(reader, SMALL_NAME_TERMS, filterField, filterTerms, Approach.PROPOSED_TIS);
+    doBench(reader, null, filterField, filterTerms, Approach.PROPOSED_TIS);
+    System.out.println("|");
+  }
+
+  static void doBench(IndexReader reader, String[] leads, String filterField, String filterTerms, Approach approach) throws Exception {
     int iters = 300;
     // warmup
     for (int i = 0; i < iters; ++i) {
-      getDocs(reader, leads, filterField, filterTerms, approach, doCount);
+      getDocs(reader, leads, filterField, filterTerms, approach);
     }
     // Take the min across multiple runs to decrease noise
     long minDurationNS = Long.MAX_VALUE;
     for (int i = 0; i < iters; ++i) {
       long t0 = System.nanoTime();
-      getDocs(reader, leads, filterField, filterTerms, approach, doCount);
+      getDocs(reader, leads, filterField, filterTerms, approach);
       minDurationNS = Math.min(minDurationNS, System.nanoTime() - t0);
     }
     System.out.printf(Locale.ROOT, "| %.2f ", minDurationNS / 1_000_000.);
   }
 
-  static void indexDocs(IndexWriter iw, LineNumberReader reader, int docLimit, boolean indexDv) throws Exception {
+  static void indexDocs(IndexWriter iw, LineNumberReader reader, int docLimit) throws Exception {
     Document doc = new Document();
     TextField name = new TextField("name", "", Field.Store.NO);
     doc.add(name);
@@ -348,14 +168,14 @@ public class TiSBench {
     SortedDocValuesField ccDv = new SortedDocValuesField("cc", new BytesRef());
     SortedSetDocValuesField combinedIdDv = new SortedSetDocValuesField("combined", new BytesRef());
     SortedSetDocValuesField combinedCCDv = new SortedSetDocValuesField("combined", new BytesRef());
-    if (indexDv) {
+    if (INDEX_DV) {
       doc.add(idDv);
       doc.add(ccDv);
       doc.add(combinedIdDv);
       doc.add(combinedCCDv);
     }
 
-    String line = null;
+    String line;
     while ((line = reader.readLine()) != null) {
       if (reader.getLineNumber() % 10000 == 0) {
         System.err.println("doc: " + reader.getLineNumber());
@@ -363,13 +183,13 @@ public class TiSBench {
       if (docLimit != -1 && reader.getLineNumber() == docLimit) {
         break;
       }
-      String values[] = line.split("\t");
+      String[] values = line.split("\t");
       id.setStringValue(values[0]);
       name.setStringValue(values[1]);
       cc.setStringValue(values[8]);
       combinedId.setStringValue(values[0]);
       combinedCC.setStringValue(values[8]);
-      if (indexDv) {
+      if (INDEX_DV) {
         idDv.setBytesValue(new BytesRef(values[0]));
         ccDv.setBytesValue(new BytesRef(values[8]));
         combinedIdDv.setBytesValue(new BytesRef(values[0]));
@@ -381,7 +201,7 @@ public class TiSBench {
 
   static int DUMMY;
 
-  static void getDocs(IndexReader reader, String[] leads, String filterField, String filterTerms, Approach approach, boolean doCount) throws IOException {
+  static void getDocs(IndexReader reader, String[] leads, String filterField, String filterTerms, Approach approach) throws IOException {
     IndexSearcher searcher = new IndexSearcher(reader);
     searcher.setQueryCache(null); // benchmarking
 
@@ -400,7 +220,7 @@ public class TiSBench {
         }
         builder.add(filterQuery, BooleanClause.Occur.MUST);
 
-        if (doCount) {
+        if (EXHAUSTIVE_SEARCH) {
           int hits = searcher.count(builder.build());
           DUMMY += hits;
         } else {
@@ -418,7 +238,7 @@ public class TiSBench {
         default -> throw new IllegalStateException("no");
       }
 
-      if (doCount) {
+      if (EXHAUSTIVE_SEARCH) {
         int hits = searcher.count(filterQuery);
         DUMMY += hits;
       } else {

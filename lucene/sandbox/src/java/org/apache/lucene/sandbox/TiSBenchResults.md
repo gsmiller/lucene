@@ -125,14 +125,15 @@ will occur in the segment, which is probably quite wrong for primary key cases.
 
 Here we see a DV approach massively outperforms the current TiS approach. IndexOrDV figures this out, as does the
 proposed TiS implementation. IndexOrDV is slightly better here, probably due to not doing any term seeking before
-deciding to use DV.
+deciding to use DV. With no lead terms, the proposed TiS implementation performs best, presumably due to the
+term-at-a-time bulk scoring approach.
 
-| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
-|--------------|------------------|-------------------|------------------|
-| Current TiS  | 122.01           | 174.29            | 194.85           |
-| DV           | 12.01            | 7.83              | 5.68             |
-| IndexOrDV    | 12.11            | 7.97              | 5.85             |
-| Proposed TiS | 16.01            | 9.87              | 5.85             |
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 376.53           | 559.65            | 640.83           | 159.97        |
+| DV           | 28.54            | 31.90             | 29.05            | 161.41        |
+| IndexOrDV    | 28.80            | 32.13             | 29.25            | 160.01        |
+| Proposed TiS | 30.04            | 32.61             | 29.22            | 111.79        |
 
 
 ### Medium Cardinality + High Cost Country Code Filter Terms
@@ -140,14 +141,15 @@ deciding to use DV.
 * Term-in-set cost: ranges from 105,131 to 2,240,232 across the 20 terms / avg: 402,173 / total: 8,043,479
 
 Again we see a case where DV massively outperforms the current TiS. Again, both IndexOrDV decide to use DV correctly and
-the proposed TiS implementation is slightly slower due to the term seeking.
+the proposed TiS implementation is slightly slower due to the term seeking. This is another case where the proposed
+TiS implementation performs best with no lead terms.
 
-| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
-|--------------|------------------|-------------------|------------------|
-| Current TiS  | 67.84            | 94.50             | 107.32           |
-| DV           | 9.59             | 4.05              | 1.72             |
-| IndexOrDV    | 9.61             | 4.09              | 1.76             |
-| Proposed TiS | 12.39            | 5.81              | 2.55             |
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 172.72           | 251.50            | 286.89           | 85.86         |
+| DV           | 14.84            | 8.31              | 4.47             | 228.90        |
+| IndexOrDV    | 14.87            | 8.35              | 4.51             | 85.87         |
+| Proposed TiS | 17.13            | 9.63              | 4.92             | 71.71         |
 
 
 ### Medium Cardinality + Low Cost Country Code Filter Terms
@@ -156,51 +158,48 @@ the proposed TiS implementation is slightly slower due to the term seeking.
 
 Here we see that our current TiS outperforms DV due to the low cost of the terms. In this case IndexOrDV get it wrong
 while the proposed TiS implementation correctly uses DV. IndexOrDV gets it wrong in this case as it relies on
-field-level stats, while the proposed TiS query uses term-level stats.
+field-level stats, while the proposed TiS query uses term-level stats. The proposed TiS implementation also does
+best with no lead terms.
 
-| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
-|--------------|------------------|-------------------|------------------|
-| Current TiS  | 1.09             | 1.55              | 1.62             |
-| DV           | 8.15             | 3.47              | 1.50             |
-| IndexOrDV    | 8.17             | 3.49              | 1.53             |
-| Proposed TiS | 1.08             | 1.53              | 1.58             |
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 4.30             | 5.52              | 5.29             | 0.79          |
+| DV           | 9.86             | 6.49              | 4.06             | 89.82         |
+| IndexOrDV    | 10.27            | 6.65              | 4.13             | 0.79          |
+| Proposed TiS | 3.04             | 3.87              | 3.91             | 0.28          |
 
 
 ### Low Cardinality + High Cost Country Code Filter Terms
 * Term-in-set cardinality: 10 terms
 * Term-in-set cost: ranges from 243,458 to 2,240,232 across the 10 terms / avg: 645,352 / total: 6,453,524
 
-Here we see that our current TiS is better for "large" lead terms, but DV is best for "medium" and "small" leads.
-Because the number of filter terms is low (< 16 specifically), our current TiSQuery gets rewritten to a boolean query.
-This means it will estimate its cost based on the actual term-level stats, just like our proposed TiSQuery, so they're
-both pretty similar.
+In this case, doc values are universally better. IndexOrDV figures this out but neither TiS implementation do. This
+is because they both get rewritten to a standard boolean query since there are fewer than 16 terms, so they resolve
+to an identical (and sub-optimal) implementation. We can do better here with the proposed TiS implementation by not
+rewriting to a boolean query.
 
-| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
-|--------------|------------------|-------------------|------------------|
-| Current TiS  | 7.59             | 3.97              | 2.63             |
-| DV           | 9.45             | 3.89              | 1.55             |
-| IndexOrDV    | 8.79             | 4.22              | 2.16             |
-| Proposed TiS | 11.47            | 5.15              | 2.20             |
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 246.48           | 133.08            | 42.72            | 92.96         |
+| DV           | 12.41            | 6.39              | 3.21             | 203.99        |
+| IndexOrDV    | 15.09            | 10.52             | 7.42             | 92.94         |
+| Proposed TiS | 246.42           | 132.96            | 42.76            | 92.95         |
 
 
 ### Low Cardinality + Low Cost Country Code Filter Terms
 * Term-in-set cardinality: 10 terms
 * Term-in-set cost: ranges from 1 to 97 across the 10 terms / avg: 49 / total: 489
 
-Here we see that our current TiS is better than DV. This is expected as the filter terms all have such low costs, so
-a postings-approach is cheaper than a DV approach (although the two converge when the lead term gets "small").
-This is an interesting case for IndexOrDV. While IndexOrDV generally uses field-level statistics and would be expected
-to get it "wrong" in this case (and use DV due to the over-estimate on cost at the field-level), the "index" query
-(TiSQuery) get rewritten to a standard BooleanQuery as there are fewer than 16 terms, and provides a more accurate
-cost by actually seeking the 16 terms and looking at term-level statistics. So IndexOrDV correctly chooses to use
-postings, like our proposed TiSQuery.
+A postings approach is generally better here due to the lost cost of the filter terms. The current TiS implementation
+and the proposed one both get this right somewhat "accidentally" because they both rewrite into a standard boolean
+query due to there being fewer than 16 terms. IndexOrDV also figures this out.
 
-| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
-|--------------|------------------|-------------------|------------------|
-| Current TiS  | 0.87             | 1.28              | 1.39             |
-| DV           | 7.84             | 3.20              | 1.31             |
-| IndexOrDV    | 0.96             | 1.43              | 1.55             |
-| Proposed TiS | 0.75             | 1.06              | 1.16             |
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 3.02             | 4.18              | 4.40             | 0.65          |
+| DV           | 9.58             | 5.58              | 3.04             | 96.95         |
+| IndexOrDV    | 4.06             | 5.72              | 5.81             | 0.65          |
+| Proposed TiS | 3.02             | 4.25              | 4.30             | 0.65          |
 
 
 ### High Cardinality PK Filter Terms
@@ -214,12 +213,12 @@ this issue, meaning IndexOrDV is incorrectly choosing to use DV. Our proposed Ti
 is still using DVs in some cases due to the heuristics not being perfect (confirmed through profiling). We can probably
 tune to be better here.
 
-| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
-|--------------|------------------|-------------------|------------------|
-| Current TiS  | 17.62            | 25.93             | 25.40            |
-| DV           | 53.36            | 65.10             | 61.45            |
-| IndexOrDV    | 56.48            | 76.43             | 70.72            |
-| Proposed TiS | 20.83            | 42.54             | 49.83            |
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 38.48            | 57.32             | 59.25            | 9.35          |
+| DV           | 101.64           | 134.21            | 134.31           | 160.87        |
+| IndexOrDV    | 122.97           | 171.60            | 149.22           | 9.70          |
+| Proposed TiS | 38.92            | 78.89             | 116.52           | 9.15          |
 
 
 ### Medium Cardinality PK Filter Terms
@@ -228,23 +227,24 @@ tune to be better here.
 
 This is a similar story to above, but our proposed TiSQuery gets it right more often, producing better results.
 
-| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
-|--------------|------------------|-------------------|------------------|
-| Current TiS  | 1.84             | 2.71              | 2.79             |
-| DV           | 13.00            | 8.03              | 5.64             |
-| IndexOrDV    | 4.14             | 6.15              | 6.27             |
-| Proposed TiS | 1.52             | 2.52              | 2.73             |
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 3.27             | 4.89              | 5.19             | 0.62          |
+| DV           | 14.81            | 10.82             | 8.59             | 107.99        |
+| IndexOrDV    | 6.19             | 9.52              | 10.18            | 0.62          |
+| Proposed TiS | 2.91             | 4.33              | 5.01             | 0.51          |
 
 
 ### Low Cardinality PK Filter Terms
 * Term-in-set cardinality: 10 terms
 * Term-in-set cost: exactly 1 for each term / total cost of 10 across all terms
 
-This is yet again the same story as above.
+In this case, because there are fewer than 16 terms, the current TiS and proposed TiS implementations are identical
+(both rewriting to boolean queries).
 
-| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms |
-|--------------|------------------|-------------------|------------------|
-| Current TiS  | 1.47             | 2.19              | 2.26             |
-| DV           | 10.94            | 6.38              | 4.13             |
-| IndexOrDV    | 2.28             | 3.39              | 3.58             |
-| Proposed TiS | 1.09             | 1.66              | 1.86             |
+| Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
+|--------------|------------------|-------------------|------------------|---------------|
+| Current TiS  | 2.51             | 3.91              | 4.08             | 0.52          |
+| DV           | 12.22            | 7.82              | 5.73             | 99.97         |
+| IndexOrDV    | 3.61             | 5.41              | 5.93             | 0.53          |
+| Proposed TiS | 2.52             | 3.83              | 4.11             | 0.53          |

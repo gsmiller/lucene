@@ -133,6 +133,9 @@ public class TermInSetQuery extends Query implements Accountable {
       Term term = new Term(field, termData.iterator().next());
       return new ConstantScoreQuery(new TermQuery(term));
     }
+    // TODO: Rewriting means we'll always use a postings-based approach, which can be worse than
+    // a doc values approach if the terms are expensive in aggregate compared to the lead cost.
+    // May be worth not rewriting or using a lower threshold.
     final int threshold =
         Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
     if (termData.size() <= threshold) {
@@ -241,7 +244,6 @@ public class TermInSetQuery extends Query implements Accountable {
                     context, doc, getQuery(), field, termData.iterator()));
       }
 
-      // TODO: not tested or benchmarked yet
       @Override
       public BulkScorer bulkScorer(LeafReaderContext context) throws IOException {
         // Implement term-at-a-time scoring for top-level scoring as it is likely more efficient
@@ -330,16 +332,13 @@ public class TermInSetQuery extends Query implements Accountable {
 
         final LeafReader reader = context.reader();
         final FieldInfo fi = reader.getFieldInfos().fieldInfo(field);
-        assert fi != null;
+        if (fi == null) {
+          // Field not in segment:
+          return null;
+        }
+        final DocValuesType dvType = fi.getDocValuesType();
 
         final Terms t = Terms.getTerms(reader, field);
-        final SortedSetDocValues dv;
-        if (fi.getDocValuesType() == DocValuesType.SORTED
-            || fi.getDocValuesType() == DocValuesType.SORTED_SET) {
-          dv = DocValues.getSortedSet(reader, field);
-        } else {
-          dv = null;
-        }
 
         // Cost estimation reasoning is:
         //  1. Assume every query term matches at least one document (queryTermsCount).
@@ -366,18 +365,15 @@ public class TermInSetQuery extends Query implements Accountable {
             assert termData.size() > 1;
 
             // If there are no doc values indexed, we have to use a postings-based approach:
-            if (dv == null) {
+            if (dvType != DocValuesType.SORTED && dvType != DocValuesType.SORTED_SET) {
               return postingsScorer(reader, t.getDocCount(), t.iterator(), null);
             }
-
-            // Number of possible candidates that need filtering:
-            long candidateSize = Math.min(leadCost, dv.cost());
 
             // Establish a threshold for switching to doc values. Give postings a significant
             // advantage for the primary-key case, since many of the primary-key terms may not
             // actually be in this segment. The 8x factor is arbitrary, based on IndexOrDVQuery,
             // but has performed well in benchmarks:
-            long candidateSizeThreshold = isPrimaryKeyField ? candidateSize << 3 : candidateSize;
+            long candidateSizeThreshold = isPrimaryKeyField ? leadCost << 3 : leadCost;
 
             if (termData.size() > candidateSizeThreshold) {
               // If the number of terms is > the number of candidates, DV should perform better.
@@ -385,7 +381,7 @@ public class TermInSetQuery extends Query implements Accountable {
               // found terms in the segment is significantly smaller, this can be the wrong
               // decision. Maybe we can do better? Possible bloom filter application? This is
               // why we special-case primary-key cases above.
-              return docValuesScorer(dv);
+              return docValuesScorer(reader);
             }
 
             // For a primary-key field, at this point, it's highly likely that a postings-based
@@ -433,9 +429,9 @@ public class TermInSetQuery extends Query implements Accountable {
               // will be more cost-effective. Since the cost of a doc-values approach is bound
               // by candidateSize, we chose to use it if expectedAdvances grows beyond a certain
               // point:
-              expectedAdvances += Math.min(termDocFreq, candidateSize);
+              expectedAdvances += Math.min(termDocFreq, leadCost);
               if (expectedAdvances > candidateSizeThreshold) {
-                return docValuesScorer(dv);
+                return docValuesScorer(reader);
               }
 
               foundTermCount++;
@@ -647,7 +643,9 @@ public class TermInSetQuery extends Query implements Accountable {
         return scorerFor(it);
       }
 
-      private Scorer docValuesScorer(SortedSetDocValues dv) throws IOException {
+      private Scorer docValuesScorer(LeafReader reader) throws IOException {
+        SortedSetDocValues dv = DocValues.getSortedSet(reader, field);
+
         boolean hasAtLeastOneTerm = false;
         LongBitSet ords = new LongBitSet(dv.getValueCount());
         PrefixCodedTerms.TermIterator termIterator = termData.iterator();

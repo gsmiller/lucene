@@ -82,7 +82,7 @@ public class TiSBench {
       try (DirectoryReader reader = DirectoryReader.open(dir)) {
         System.out.println("### All Country Code Filter Terms");
         System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|");
+        System.out.println("|---|---|---|---|---|");
         System.out.print("| Current TiS ");
         doBench(reader, LARGE_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
         doBench(reader, MEDIUM_NAME_TERMS, "cc", ALL_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
@@ -110,7 +110,7 @@ public class TiSBench {
 
         System.out.println("### Medium Cardinality + High Cost Country Code Filter Terms");
         System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|");
+        System.out.println("|---|---|---|---|---|");
         System.out.print("| Current TiS ");
         doBench(reader, LARGE_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
         doBench(reader, MEDIUM_NAME_TERMS, "cc", MEDIUM_CARDINALITY_HIGH_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
@@ -138,7 +138,7 @@ public class TiSBench {
 
         System.out.println("### Medium Cardinality + Low Cost Country Code Filter Terms");
         System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|");
+        System.out.println("|---|---|---|---|---|");
         System.out.print("| Current TiS ");
         doBench(reader, LARGE_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
         doBench(reader, MEDIUM_NAME_TERMS, "cc", MEDIUM_CARDINALITY_LOW_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
@@ -166,7 +166,7 @@ public class TiSBench {
 
         System.out.println("### Low Cardinality + High Cost Country Code Filter Terms");
         System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|");
+        System.out.println("|---|---|---|---|---|");
         System.out.print("| Current TiS ");
         doBench(reader, LARGE_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
         doBench(reader, MEDIUM_NAME_TERMS, "cc", LOW_CARDINALITY_HIGH_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
@@ -194,7 +194,7 @@ public class TiSBench {
 
         System.out.println("### Low Cardinality + Low Cost Country Code Filter Terms");
         System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|");
+        System.out.println("|---|---|---|---|---|");
         System.out.print("| Current TiS ");
         doBench(reader, LARGE_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
         doBench(reader, MEDIUM_NAME_TERMS, "cc", LOW_CARDINALITY_LOW_COST_CC_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
@@ -222,7 +222,7 @@ public class TiSBench {
 
         System.out.println("### High Cardinality PK Filter Terms");
         System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|");
+        System.out.println("|---|---|---|---|---|");
         System.out.print("| Current TiS ");
         doBench(reader, LARGE_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
         doBench(reader, MEDIUM_NAME_TERMS, "id", HIGH_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
@@ -250,7 +250,7 @@ public class TiSBench {
 
         System.out.println("### Medium Cardinality PK Filter Terms");
         System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|");
+        System.out.println("|---|---|---|---|---|");
         System.out.print("| Current TiS ");
         doBench(reader, LARGE_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
         doBench(reader, MEDIUM_NAME_TERMS, "id", MEDIUM_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
@@ -278,7 +278,7 @@ public class TiSBench {
 
         System.out.println("### Low Cardinality PK Filter Terms");
         System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
-        System.out.println("|---|---|---|---|");
+        System.out.println("|---|---|---|---|---|");
         System.out.print("| Current TiS ");
         doBench(reader, LARGE_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);
         doBench(reader, MEDIUM_NAME_TERMS, "id", LOW_CARDINALITY_PK_TERMS, Approach.CLASSIC_TIS, exhaustiveSearch);

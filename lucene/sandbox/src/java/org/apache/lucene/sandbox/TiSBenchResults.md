@@ -130,10 +130,10 @@ term-at-a-time bulk scoring approach.
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
 |--------------|------------------|-------------------|------------------|---------------|
-| Current TiS  | 376.53           | 559.65            | 640.83           | 159.97        |
-| DV           | 28.54            | 31.90             | 29.05            | 161.41        |
-| IndexOrDV    | 28.80            | 32.13             | 29.25            | 160.01        |
-| Proposed TiS | 30.04            | 32.61             | 29.22            | 111.79        |
+| Current TiS  | 212.04           | 312.75            | 356.27           | 120.26        |
+| DV           | 26.42            | 28.52             | 25.63            | 164.67        |
+| IndexOrDV    | 26.68            | 28.77             | 25.82            | 120.29        |
+| Proposed TiS | 27.98            | 29.34             | 25.83            | 111.13        |
 
 
 ### Medium Cardinality + High Cost Country Code Filter Terms
@@ -146,10 +146,10 @@ TiS implementation performs best with no lead terms.
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
 |--------------|------------------|-------------------|------------------|---------------|
-| Current TiS  | 172.72           | 251.50            | 286.89           | 85.86         |
-| DV           | 14.84            | 8.31              | 4.47             | 228.90        |
-| IndexOrDV    | 14.87            | 8.35              | 4.51             | 85.87         |
-| Proposed TiS | 17.13            | 9.63              | 4.92             | 71.71         |
+| Current TiS  | 134.72           | 194.37            | 220.98           | 77.29         |
+| DV           | 15.00            | 8.29              | 4.26             | 233.56        |
+| IndexOrDV    | 15.02            | 8.33              | 4.31             | 77.29         |
+| Proposed TiS | 17.01            | 9.39              | 4.61             | 71.37         |
 
 
 ### Medium Cardinality + Low Cost Country Code Filter Terms
@@ -163,10 +163,10 @@ best with no lead terms.
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
 |--------------|------------------|-------------------|------------------|---------------|
-| Current TiS  | 4.30             | 5.52              | 5.29             | 0.79          |
-| DV           | 9.86             | 6.49              | 4.06             | 89.82         |
-| IndexOrDV    | 10.27            | 6.65              | 4.13             | 0.79          |
-| Proposed TiS | 3.04             | 3.87              | 3.91             | 0.28          |
+| Current TiS  | 4.32             | 5.53              | 5.32             | 0.79          |
+| DV           | 10.43            | 6.45              | 3.81             | 93.16         |
+| IndexOrDV    | 10.31            | 6.47              | 3.85             | 0.79          |
+| Proposed TiS | 2.94             | 3.69              | 3.67             | 0.28          |
 
 
 ### Low Cardinality + High Cost Country Code Filter Terms
@@ -180,10 +180,10 @@ rewriting to a boolean query.
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
 |--------------|------------------|-------------------|------------------|---------------|
-| Current TiS  | 246.48           | 133.08            | 42.72            | 92.96         |
-| DV           | 12.41            | 6.39              | 3.21             | 203.99        |
-| IndexOrDV    | 15.09            | 10.52             | 7.42             | 92.94         |
-| Proposed TiS | 246.42           | 132.96            | 42.76            | 92.95         |
+| Current TiS  | 248.00           | 133.53            | 42.60            | 69.69         |
+| DV           | 12.46            | 6.30              | 3.06             | 202.68        |
+| IndexOrDV    | 15.15            | 10.33             | 7.16             | 69.77         |
+| Proposed TiS | 247.94           | 133.57            | 42.59            | 69.80         |
 
 
 ### Low Cardinality + Low Cost Country Code Filter Terms
@@ -229,10 +229,10 @@ This is a similar story to above, but our proposed TiSQuery gets it right more o
 
 | Approach     | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |
 |--------------|------------------|-------------------|------------------|---------------|
-| Current TiS  | 3.27             | 4.89              | 5.19             | 0.62          |
-| DV           | 14.81            | 10.82             | 8.59             | 107.99        |
-| IndexOrDV    | 6.19             | 9.52              | 10.18            | 0.62          |
-| Proposed TiS | 2.91             | 4.33              | 5.01             | 0.51          |
+| Current TiS  | 3.17             | 4.73              | 5.02             | 0.61          |
+| DV           | 15.28            | 10.79             | 8.50             | 107.23        |
+| IndexOrDV    | 6.14             | 9.26              | 9.82             | 0.60          |
+| Proposed TiS | 2.74             | 4.04              | 4.74             | 0.48          |
 
 
 ### Low Cardinality PK Filter Terms

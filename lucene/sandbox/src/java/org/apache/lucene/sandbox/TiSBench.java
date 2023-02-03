@@ -73,7 +73,7 @@ public class TiSBench {
       try (IndexWriter iw = new IndexWriter(dir, config);
            LineNumberReader reader = new LineNumberReader(new InputStreamReader(Files.newInputStream(Paths.get(geonamesDataPath))))) {
         long t0 = System.nanoTime();
-        indexDocs(iw, reader, docLimit, false);
+        indexDocs(iw, reader, docLimit, true);
         System.out.println(String.format(Locale.ROOT, "Indexing time: %d msec", (System.nanoTime() - t0) / 1_000_000));
       }
       System.err.println("Index files: " + Arrays.toString(dir.listAll()));

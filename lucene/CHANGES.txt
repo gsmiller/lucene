@@ -116,7 +116,8 @@ Improvements
 
 Optimizations
 ---------------------
-(No changes)
+* GITHUB#12089: TermInSetQuery will choose between using postings and doc values (if doc values are indexed) to more
+  optimally execute the query. (Greg Miller)
 
 Bug Fixes
 ---------------------

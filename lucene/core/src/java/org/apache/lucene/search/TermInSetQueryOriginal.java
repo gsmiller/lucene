@@ -16,14 +16,6 @@
  */
 package org.apache.lucene.search;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Objects;
-import java.util.SortedSet;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.PostingsEnum;
@@ -47,10 +39,19 @@ import org.apache.lucene.util.automaton.ByteRunAutomaton;
 import org.apache.lucene.util.automaton.CompiledAutomaton;
 import org.apache.lucene.util.automaton.Operations;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import java.util.SortedSet;
+
 /**
  * Specialization for a disjunction over many terms that behaves like a {@link ConstantScoreQuery}
  * over a {@link BooleanQuery} containing only {@link
- * org.apache.lucene.search.BooleanClause.Occur#SHOULD} clauses.
+ * Occur#SHOULD} clauses.
  *
  * <p>For instance in the following example, both {@code q1} and {@code q2} would yield the same
  * scores:
@@ -70,10 +71,10 @@ import org.apache.lucene.util.automaton.Operations;
  *
  * <p>NOTE: This query produces scores that are equal to its boost
  */
-public class TermInSetQuery extends Query implements Accountable {
+public class TermInSetQueryOriginal extends Query implements Accountable {
 
   private static final long BASE_RAM_BYTES_USED =
-      RamUsageEstimator.shallowSizeOfInstance(TermInSetQuery.class);
+      RamUsageEstimator.shallowSizeOfInstance(TermInSetQueryOriginal.class);
   // Same threshold as MultiTermQueryConstantScoreWrapper
   static final int BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD = 16;
 
@@ -81,8 +82,8 @@ public class TermInSetQuery extends Query implements Accountable {
   private final PrefixCodedTerms termData;
   private final int termDataHashCode; // cached hashcode of termData
 
-  /** Creates a new {@link TermInSetQuery} from the given collection of terms. */
-  public TermInSetQuery(String field, Collection<BytesRef> terms) {
+  /** Creates a new {@link TermInSetQueryOriginal} from the given collection of terms. */
+  public TermInSetQueryOriginal(String field, Collection<BytesRef> terms) {
     BytesRef[] sortedTerms = terms.toArray(new BytesRef[0]);
     // already sorted if we are a SortedSet with natural order
     boolean sorted =
@@ -106,8 +107,8 @@ public class TermInSetQuery extends Query implements Accountable {
     termDataHashCode = termData.hashCode();
   }
 
-  /** Creates a new {@link TermInSetQuery} from the given array of terms. */
-  public TermInSetQuery(String field, BytesRef... terms) {
+  /** Creates a new {@link TermInSetQueryOriginal} from the given array of terms. */
+  public TermInSetQueryOriginal(String field, BytesRef... terms) {
     this(field, Arrays.asList(terms));
   }
 
@@ -157,7 +158,7 @@ public class TermInSetQuery extends Query implements Accountable {
     return sameClassAs(other) && equalsTo(getClass().cast(other));
   }
 
-  private boolean equalsTo(TermInSetQuery other) {
+  private boolean equalsTo(TermInSetQueryOriginal other) {
     // no need to check 'field' explicitly since it is encoded in 'termData'
     // termData might be heavy to compare so check the hash code first
     return termDataHashCode == other.termDataHashCode && termData.equals(other.termData);
@@ -258,9 +259,7 @@ public class TermInSetQuery extends Query implements Accountable {
        * On the given leaf context, try to either rewrite to a disjunction if there are few matching
        * terms, or build a bitset containing matching docs.
        */
-      private WeightOrDocIdSet rewrite(
-          LeafReaderContext context, TermIterator iterator, List<TermAndState> matchingTerms)
-          throws IOException {
+      private WeightOrDocIdSet rewrite(LeafReaderContext context) throws IOException {
         final LeafReader reader = context.reader();
 
         Terms terms = reader.terms(field);
@@ -270,12 +269,14 @@ public class TermInSetQuery extends Query implements Accountable {
         final int fieldDocCount = terms.getDocCount();
         TermsEnum termsEnum = terms.iterator();
         PostingsEnum docs = null;
+        TermIterator iterator = termData.iterator();
 
         // We will first try to collect up to 'threshold' terms into 'matchingTerms'
         // if there are too many terms, we will fall back to building the 'builder'
         final int threshold =
             Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
         assert termData.size() > threshold : "Query should have been rewritten";
+        List<TermAndState> matchingTerms = new ArrayList<>(threshold);
         DocIdSetBuilder builder = null;
 
         for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
@@ -345,9 +346,7 @@ public class TermInSetQuery extends Query implements Accountable {
 
       @Override
       public BulkScorer bulkScorer(LeafReaderContext context) throws IOException {
-        final TermIterator termIterator = termData.iterator();
-        final List<TermAndState> matchingTerms = new ArrayList<>();
-        final WeightOrDocIdSet weightOrBitSet = rewrite(context, termIterator, matchingTerms);
+        final WeightOrDocIdSet weightOrBitSet = rewrite(context);
         if (weightOrBitSet == null) {
           return null;
         } else if (weightOrBitSet.weight != null) {
@@ -368,33 +367,32 @@ public class TermInSetQuery extends Query implements Accountable {
           return null;
         }
 
+        // Cost estimation reasoning is:
+        //  1. Assume every query term matches at least one document (queryTermsCount).
+        //  2. Determine the total number of docs beyond the first one for each term.
+        //     That count provides a ceiling on the number of extra docs that could match beyond
+        //     that first one. (We omit the first since it's already been counted in #1).
+        // This approach still provides correct worst-case cost in general, but provides tighter
+        // estimates for primary-key-like fields. See: LUCENE-10207
+
+        // TODO: This cost estimation may grossly overestimate since we have no index statistics
+        // for the specific query terms. While it's nice to avoid the cost of intersecting the
+        // query terms with the index, it could be beneficial to do that work and get better
+        // cost estimates.
         final long cost;
-        final TermsEnum termsEnum = indexTerms.iterator();
-        final TermIterator queryTerms = termData.iterator();
-        final int threshold =
-            Math.max(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
-        final List<TermAndState> matchingTerms = new ArrayList<>();
-        if (indexTerms.getSumDocFreq() == indexTerms.getDocCount()) {
-          cost = termData.size();
-        } else {
-          long sampledCostTotal = 0;
-          for (BytesRef term = queryTerms.next(); term != null; term = queryTerms.next()) {
-            if (termsEnum.seekExact(term)) {
-              sampledCostTotal += termsEnum.docFreq();
-              matchingTerms.add(new TermAndState(field, termsEnum));
-              if (matchingTerms.size() > threshold) {
-                break;
-              }
-            }
-          }
-          cost = (sampledCostTotal / matchingTerms.size()) * termData.size();
+        final long queryTermsCount = termData.size();
+        long potentialExtraCost = indexTerms.getSumDocFreq();
+        final long indexedTermCount = indexTerms.size();
+        if (indexedTermCount != -1) {
+          potentialExtraCost -= indexedTermCount;
         }
+        cost = queryTermsCount + potentialExtraCost;
 
         final Weight weight = this;
         return new ScorerSupplier() {
           @Override
           public Scorer get(long leadCost) throws IOException {
-            WeightOrDocIdSet weightOrDocIdSet = rewrite(context, queryTerms, matchingTerms);
+            WeightOrDocIdSet weightOrDocIdSet = rewrite(context);
             final Scorer scorer;
             if (weightOrDocIdSet == null) {
               scorer = null;

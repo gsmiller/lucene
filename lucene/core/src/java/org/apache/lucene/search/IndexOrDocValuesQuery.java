@@ -164,19 +164,22 @@ public final class IndexOrDocValuesQuery extends Query {
         return new ScorerSupplier() {
           @Override
           public Scorer get(long leadCost) throws IOException {
-            // At equal costs, doc values tend to be worse than points since they
-            // still need to perform one comparison per document while points can
-            // do much better than that given how values are organized. So we give
-            // an arbitrary 8x penalty to doc values.
-//            final long threshold = leadCost << 3;
+            // TODO: temporarily removed the 8x penalty for doc values...
             final long threshold = leadCost;
             final CostIterator costIterator = indexScorerSupplier.costIterator();
+            int iterations = 0;
             long cost = 0;
-            for (long incremental = costIterator.next(); incremental != -1; incremental = costIterator.next()) {
+            for (long incremental = costIterator.next();
+                incremental != -1;
+                incremental = costIterator.next()) {
+              if (iterations == TermInSetQuery.BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD) {
+                break;
+              }
               cost += incremental;
               if (cost > threshold) {
                 return dvScorerSupplier.get(leadCost);
               }
+              iterations++;
             }
             return indexScorerSupplier.get(leadCost);
           }

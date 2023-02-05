@@ -16,10 +16,11 @@
  */
 package org.apache.lucene.search;
 
-import java.io.IOException;
 import org.apache.lucene.document.LongPoint;
 import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.index.LeafReaderContext;
+
+import java.io.IOException;
 
 /**
  * A query that uses either an index structure (points or terms) or doc values in order to run a
@@ -47,19 +48,19 @@ import org.apache.lucene.index.LeafReaderContext;
  *
  * @lucene.experimental
  */
-public final class IndexOrDocValuesQuery extends Query {
+public final class IndexOrDocValuesQueryOriginal extends Query {
 
   private final Query indexQuery, dvQuery;
 
   /**
-   * Create an {@link IndexOrDocValuesQuery}. Both provided queries must match the same documents
+   * Create an {@link IndexOrDocValuesQueryOriginal}. Both provided queries must match the same documents
    * and give the same scores.
    *
    * @param indexQuery a query that has a good iterator but whose scorer may be costly to create
    * @param dvQuery a query whose scorer is cheap to create that can quickly check whether a given
    *     document matches
    */
-  public IndexOrDocValuesQuery(Query indexQuery, Query dvQuery) {
+  public IndexOrDocValuesQueryOriginal(Query indexQuery, Query dvQuery) {
     this.indexQuery = indexQuery;
     this.dvQuery = dvQuery;
   }
@@ -87,7 +88,7 @@ public final class IndexOrDocValuesQuery extends Query {
     if (sameClassAs(obj) == false) {
       return false;
     }
-    IndexOrDocValuesQuery that = (IndexOrDocValuesQuery) obj;
+    IndexOrDocValuesQueryOriginal that = (IndexOrDocValuesQueryOriginal) obj;
     return indexQuery.equals(that.indexQuery) && dvQuery.equals(that.dvQuery);
   }
 
@@ -108,7 +109,7 @@ public final class IndexOrDocValuesQuery extends Query {
       return new MatchAllDocsQuery();
     }
     if (indexQuery != indexRewrite || dvQuery != dvRewrite) {
-      return new IndexOrDocValuesQuery(indexRewrite, dvRewrite);
+      return new IndexOrDocValuesQueryOriginal(indexRewrite, dvRewrite);
     }
     return this;
   }
@@ -168,17 +169,12 @@ public final class IndexOrDocValuesQuery extends Query {
             // still need to perform one comparison per document while points can
             // do much better than that given how values are organized. So we give
             // an arbitrary 8x penalty to doc values.
-//            final long threshold = leadCost << 3;
-            final long threshold = leadCost;
-            final CostIterator costIterator = indexScorerSupplier.costIterator();
-            long cost = 0;
-            for (long incremental = costIterator.next(); incremental != -1; incremental = costIterator.next()) {
-              cost += incremental;
-              if (cost > threshold) {
-                return dvScorerSupplier.get(leadCost);
-              }
+            final long threshold = cost() >>> 3;
+            if (threshold <= leadCost) {
+              return indexScorerSupplier.get(leadCost);
+            } else {
+              return dvScorerSupplier.get(leadCost);
             }
-            return indexScorerSupplier.get(leadCost);
           }
 
           @Override

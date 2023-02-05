@@ -17,6 +17,7 @@
 package org.apache.lucene.search;
 
 import java.io.IOException;
+import java.util.PrimitiveIterator;
 
 /**
  * A supplier of {@link Scorer}. This allows to get an estimate of the cost before building the
@@ -42,4 +43,30 @@ public abstract class ScorerSupplier {
    * @see DocIdSetIterator#cost
    */
   public abstract long cost();
+
+  public CostIterator costIterator() {
+    return new SingletonCostIterator(cost());
+  }
+
+  public static abstract class CostIterator {
+    abstract long next() throws IOException;
+  }
+
+  private static class SingletonCostIterator extends CostIterator {
+    private final long val;
+    private boolean exhausted;
+
+    SingletonCostIterator(long val) {
+      this.val = val;
+    }
+
+    @Override
+    long next() {
+      if (exhausted) {
+        return -1;
+      }
+      exhausted = true;
+      return val;
+    }
+  }
 }

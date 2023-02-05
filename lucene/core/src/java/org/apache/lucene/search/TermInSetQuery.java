@@ -258,7 +258,7 @@ public class TermInSetQuery extends Query implements Accountable {
        * On the given leaf context, try to either rewrite to a disjunction if there are few matching
        * terms, or build a bitset containing matching docs.
        */
-      private WeightOrDocIdSet rewrite(LeafReaderContext context) throws IOException {
+      private WeightOrDocIdSet rewrite(LeafReaderContext context, TermIterator iterator, List<TermAndState> matchingTerms) throws IOException {
         final LeafReader reader = context.reader();
 
         Terms terms = reader.terms(field);
@@ -268,14 +268,12 @@ public class TermInSetQuery extends Query implements Accountable {
         final int fieldDocCount = terms.getDocCount();
         TermsEnum termsEnum = terms.iterator();
         PostingsEnum docs = null;
-        TermIterator iterator = termData.iterator();
 
         // We will first try to collect up to 'threshold' terms into 'matchingTerms'
         // if there are too many terms, we will fall back to building the 'builder'
         final int threshold =
             Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
         assert termData.size() > threshold : "Query should have been rewritten";
-        List<TermAndState> matchingTerms = new ArrayList<>(threshold);
         DocIdSetBuilder builder = null;
 
         for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
@@ -345,7 +343,9 @@ public class TermInSetQuery extends Query implements Accountable {
 
       @Override
       public BulkScorer bulkScorer(LeafReaderContext context) throws IOException {
-        final WeightOrDocIdSet weightOrBitSet = rewrite(context);
+        final TermIterator termIterator = termData.iterator();
+        final List<TermAndState> matchingTerms = new ArrayList<>();
+        final WeightOrDocIdSet weightOrBitSet = rewrite(context, termIterator, matchingTerms);
         if (weightOrBitSet == null) {
           return null;
         } else if (weightOrBitSet.weight != null) {
@@ -387,11 +387,40 @@ public class TermInSetQuery extends Query implements Accountable {
         }
         cost = queryTermsCount + potentialExtraCost;
 
+        final TermsEnum termsEnum = indexTerms.iterator();
+        final TermIterator termIterator = termData.iterator();
+        final List<TermAndState> matchingTerms = new ArrayList<>();
+        final int threshold =
+            Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
+
+        final ScorerSupplier.CostIterator costIterator = new ScorerSupplier.CostIterator() {
+          boolean exhausted;
+
+          @Override
+          long next() throws IOException {
+            if (exhausted) {
+              return -1;
+            }
+            if (matchingTerms.size() == threshold) {
+              exhausted = true;
+              return -1;
+            }
+            for (BytesRef term = termIterator.next(); term != null; term = termIterator.next()) {
+              if (termsEnum.seekExact(term)) {
+                matchingTerms.add(new TermAndState(field, termsEnum));
+                return termsEnum.docFreq();
+              }
+            }
+            exhausted = true;
+            return -1;
+          }
+        };
+
         final Weight weight = this;
         return new ScorerSupplier() {
           @Override
           public Scorer get(long leadCost) throws IOException {
-            WeightOrDocIdSet weightOrDocIdSet = rewrite(context);
+            WeightOrDocIdSet weightOrDocIdSet = rewrite(context, termIterator, matchingTerms);
             final Scorer scorer;
             if (weightOrDocIdSet == null) {
               scorer = null;
@@ -410,6 +439,11 @@ public class TermInSetQuery extends Query implements Accountable {
           @Override
           public long cost() {
             return cost;
+          }
+
+          @Override
+          public CostIterator costIterator() {
+            return costIterator;
           }
         };
       }

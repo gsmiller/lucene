@@ -16,14 +16,6 @@
  */
 package org.apache.lucene.search;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Objects;
-import java.util.SortedSet;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.PostingsEnum;
@@ -47,10 +39,19 @@ import org.apache.lucene.util.automaton.ByteRunAutomaton;
 import org.apache.lucene.util.automaton.CompiledAutomaton;
 import org.apache.lucene.util.automaton.Operations;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import java.util.SortedSet;
+
 /**
  * Specialization for a disjunction over many terms that behaves like a {@link ConstantScoreQuery}
  * over a {@link BooleanQuery} containing only {@link
- * org.apache.lucene.search.BooleanClause.Occur#SHOULD} clauses.
+ * Occur#SHOULD} clauses.
  *
  * <p>For instance in the following example, both {@code q1} and {@code q2} would yield the same
  * scores:
@@ -70,10 +71,10 @@ import org.apache.lucene.util.automaton.Operations;
  *
  * <p>NOTE: This query produces scores that are equal to its boost
  */
-public class TermInSetQuery extends Query implements Accountable {
+public class TermInSetQueryOriginal extends Query implements Accountable {
 
   private static final long BASE_RAM_BYTES_USED =
-      RamUsageEstimator.shallowSizeOfInstance(TermInSetQuery.class);
+      RamUsageEstimator.shallowSizeOfInstance(TermInSetQueryOriginal.class);
   // Same threshold as MultiTermQueryConstantScoreWrapper
   static final int BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD = 16;
 
@@ -81,8 +82,8 @@ public class TermInSetQuery extends Query implements Accountable {
   private final PrefixCodedTerms termData;
   private final int termDataHashCode; // cached hashcode of termData
 
-  /** Creates a new {@link TermInSetQuery} from the given collection of terms. */
-  public TermInSetQuery(String field, Collection<BytesRef> terms) {
+  /** Creates a new {@link TermInSetQueryOriginal} from the given collection of terms. */
+  public TermInSetQueryOriginal(String field, Collection<BytesRef> terms) {
     BytesRef[] sortedTerms = terms.toArray(new BytesRef[0]);
     // already sorted if we are a SortedSet with natural order
     boolean sorted =
@@ -106,8 +107,8 @@ public class TermInSetQuery extends Query implements Accountable {
     termDataHashCode = termData.hashCode();
   }
 
-  /** Creates a new {@link TermInSetQuery} from the given array of terms. */
-  public TermInSetQuery(String field, BytesRef... terms) {
+  /** Creates a new {@link TermInSetQueryOriginal} from the given array of terms. */
+  public TermInSetQueryOriginal(String field, BytesRef... terms) {
     this(field, Arrays.asList(terms));
   }
 
@@ -157,7 +158,7 @@ public class TermInSetQuery extends Query implements Accountable {
     return sameClassAs(other) && equalsTo(getClass().cast(other));
   }
 
-  private boolean equalsTo(TermInSetQuery other) {
+  private boolean equalsTo(TermInSetQueryOriginal other) {
     // no need to check 'field' explicitly since it is encoded in 'termData'
     // termData might be heavy to compare so check the hash code first
     return termDataHashCode == other.termDataHashCode && termData.equals(other.termData);
@@ -275,8 +276,7 @@ public class TermInSetQuery extends Query implements Accountable {
         final int threshold =
             Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
         assert termData.size() > threshold : "Query should have been rewritten";
-        TermAndState[] matchingTerms = new TermAndState[threshold];
-        int matchingTermCount = 0;
+        List<TermAndState> matchingTerms = new ArrayList<>(threshold);
         DocIdSetBuilder builder = null;
 
         for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
@@ -299,11 +299,10 @@ public class TermInSetQuery extends Query implements Accountable {
             if (matchingTerms == null) {
               docs = termsEnum.postings(docs, PostingsEnum.NONE);
               builder.add(docs);
-            } else if (matchingTermCount < threshold) {
-              matchingTerms[matchingTermCount] = new TermAndState(field, termsEnum);
-              matchingTermCount++;
+            } else if (matchingTerms.size() < threshold) {
+              matchingTerms.add(new TermAndState(field, termsEnum));
             } else {
-              assert matchingTermCount == threshold;
+              assert matchingTerms.size() == threshold;
               builder = new DocIdSetBuilder(reader.maxDoc(), terms);
               docs = termsEnum.postings(docs, PostingsEnum.NONE);
               builder.add(docs);

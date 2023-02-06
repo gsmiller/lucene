@@ -21,8 +21,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.SortedSet;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.DocValuesType;
@@ -646,22 +648,15 @@ public class TermInSetQuery extends Query implements Accountable {
       private Scorer docValuesScorer(LeafReader reader) throws IOException {
         SortedSetDocValues dv = DocValues.getSortedSet(reader, field);
 
-        boolean hasAtLeastOneTerm = false;
-        // TODO: Consider LongHashSet instead. Benchmarks hinted that this might increase latency
-        // by as much as 20%, but we should revisit.
-        LongBitSet ords = new LongBitSet(dv.getValueCount());
-        PrefixCodedTerms.TermIterator termIterator = termData.iterator();
+        Set<BytesRef> queryTerms = new HashSet<>();
+        TermIterator termIterator = termData.iterator();
         for (BytesRef term = termIterator.next(); term != null; term = termIterator.next()) {
-          long ord = dv.lookupTerm(term);
-          if (ord >= 0) {
-            ords.set(ord);
-            hasAtLeastOneTerm = true;
-          }
+          queryTerms.add(BytesRef.deepCopyOf(term));
         }
 
-        if (hasAtLeastOneTerm == false) {
-          return emptyScorer();
-        }
+        LongBitSet resolvedOrds = new LongBitSet(dv.getValueCount());
+        LongBitSet ords = new LongBitSet(dv.getValueCount());
+        long[] minMax = new long[] {Long.MAX_VALUE, Long.MIN_VALUE};
 
         TwoPhaseIterator it;
         SortedDocValues singleton = DocValues.unwrapSingleton(dv);
@@ -670,7 +665,21 @@ public class TermInSetQuery extends Query implements Accountable {
               new TwoPhaseIterator(singleton) {
                 @Override
                 public boolean matches() throws IOException {
-                  return ords.get(singleton.ordValue());
+                  int ord = singleton.ordValue();
+                  if (resolvedOrds.get(ord) == false) {
+                    BytesRef term = dv.lookupOrd(ord);
+                    if (queryTerms.contains(term)) {
+                      ords.set(ord);
+                      minMax[0] = Math.min(minMax[0], ord);
+                      minMax[1] = Math.max(minMax[1], ord);
+                    }
+                    resolvedOrds.set(ord);
+                  }
+                  if (minMax[0] <= ord && ord <= minMax[1]) {
+                    return ords.get(ord);
+                  } else {
+                    return false;
+                  }
                 }
 
                 @Override
@@ -684,7 +693,17 @@ public class TermInSetQuery extends Query implements Accountable {
                 @Override
                 public boolean matches() throws IOException {
                   for (int i = 0; i < dv.docValueCount(); i++) {
-                    if (ords.get(dv.nextOrd())) {
+                    long ord = dv.nextOrd();
+                    if (resolvedOrds.get(ord) == false) {
+                      BytesRef term = dv.lookupOrd(ord);
+                      if (queryTerms.contains(term)) {
+                        ords.set(ord);
+                        minMax[0] = Math.min(minMax[0], ord);
+                        minMax[1] = Math.max(minMax[1], ord);
+                      }
+                      resolvedOrds.set(ord);
+                    }
+                    if (minMax[0] <= ord && ord <= minMax[1] && ords.get(ord)) {
                       return true;
                     }
                   }

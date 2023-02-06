@@ -258,7 +258,9 @@ public class TermInSetQuery extends Query implements Accountable {
        * On the given leaf context, try to either rewrite to a disjunction if there are few matching
        * terms, or build a bitset containing matching docs.
        */
-      private WeightOrDocIdSet rewrite(LeafReaderContext context, TermIterator iterator, List<TermAndState> matchingTerms) throws IOException {
+      private WeightOrDocIdSet rewrite(
+          LeafReaderContext context, TermIterator iterator, List<TermAndState> matchingTerms)
+          throws IOException {
         final LeafReader reader = context.reader();
 
         Terms terms = reader.terms(field);
@@ -390,31 +392,27 @@ public class TermInSetQuery extends Query implements Accountable {
         final TermsEnum termsEnum = indexTerms.iterator();
         final TermIterator termIterator = termData.iterator();
         final List<TermAndState> matchingTerms = new ArrayList<>();
-        final int threshold =
-            Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
+        final ScorerSupplier.CostIterator costIterator =
+            new ScorerSupplier.CostIterator() {
+              boolean exhausted;
 
-        final ScorerSupplier.CostIterator costIterator = new ScorerSupplier.CostIterator() {
-          boolean exhausted;
-
-          @Override
-          long next() throws IOException {
-            if (exhausted) {
-              return -1;
-            }
-            if (matchingTerms.size() == threshold) {
-              exhausted = true;
-              return -1;
-            }
-            for (BytesRef term = termIterator.next(); term != null; term = termIterator.next()) {
-              if (termsEnum.seekExact(term)) {
-                matchingTerms.add(new TermAndState(field, termsEnum));
-                return termsEnum.docFreq();
+              @Override
+              long next() throws IOException {
+                if (exhausted) {
+                  return -1;
+                }
+                for (BytesRef term = termIterator.next();
+                    term != null;
+                    term = termIterator.next()) {
+                  if (termsEnum.seekExact(term)) {
+                    matchingTerms.add(new TermAndState(field, termsEnum));
+                    return termsEnum.docFreq();
+                  }
+                }
+                exhausted = true;
+                return -1;
               }
-            }
-            exhausted = true;
-            return -1;
-          }
-        };
+            };
 
         final Weight weight = this;
         return new ScorerSupplier() {

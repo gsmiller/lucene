@@ -107,13 +107,13 @@ public class TiSBench {
     System.out.println("| Approach | Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
     System.out.println("|---|---|---|---|---|");
 
-    System.out.print("| BQ ");
-    doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.BQ);
-    doBench(reader, MEDIUM_NAME_TERMS, filterField, filterTerms, Approach.BQ);
-    doBench(reader, SMALL_NAME_TERMS, filterField, filterTerms, Approach.BQ);
-//    doBench(reader, null, filterField, filterTerms, Approach.BQ);
-    System.out.print("| N/A ");
-    System.out.println("|");
+//    System.out.print("| BQ ");
+//    doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.BQ);
+//    doBench(reader, MEDIUM_NAME_TERMS, filterField, filterTerms, Approach.BQ);
+//    doBench(reader, SMALL_NAME_TERMS, filterField, filterTerms, Approach.BQ);
+////    doBench(reader, null, filterField, filterTerms, Approach.BQ);
+//    System.out.print("| N/A ");
+//    System.out.println("|");
 
 //    System.out.print("| TiS ");
 //    doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.TIS);
@@ -123,13 +123,13 @@ public class TiSBench {
 //    System.out.print("| N/A ");
 //    System.out.println("|");
 //
-//    System.out.print("| DV ");
-//    doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.DV);
-//    doBench(reader, MEDIUM_NAME_TERMS, filterField, filterTerms, Approach.DV);
-//    doBench(reader, SMALL_NAME_TERMS, filterField, filterTerms, Approach.DV);
-////    doBench(reader, null, filterField, filterTerms, Approach.DV);
-//    System.out.print("| N/A ");
-//    System.out.println("|");
+    System.out.print("| DV ");
+    doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.DV);
+    doBench(reader, MEDIUM_NAME_TERMS, filterField, filterTerms, Approach.DV);
+    doBench(reader, SMALL_NAME_TERMS, filterField, filterTerms, Approach.DV);
+//    doBench(reader, null, filterField, filterTerms, Approach.DV);
+    System.out.print("| N/A ");
+    System.out.println("|");
 //
 //    System.out.print("| IndexOrDV BQ ");
 //    doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.INDEX_OR_DV_BQ);
@@ -365,9 +365,11 @@ public class TiSBench {
   static final String[] LARGE_NAME_TERMS =
       {"la", "de", "saint", "canyon"};
   static final String[] MEDIUM_NAME_TERMS =
-      {"hotel", "del", "les", "plaza", "parc", "by"};
+      {"hotel", "del", "les", "plaza"};
+//      {"hotel", "del", "les", "plaza", "parc", "by"};
   static final String[] SMALL_NAME_TERMS =
-      {"channel", "centre", "st", "imperial", "silent", "sant", "andorra"};
+      {"channel", "centre", "st", "imperial"};
+//      {"channel", "centre", "st", "imperial", "silent", "sant", "andorra"};
 
   static final String ALL_CC_TERMS =
       "AD,AE,AF,AG,AI,AL,AM,AN,AO,AQ,AR,AS,AT,AU,AW,AX,AZ,BA,BB,BD,BE,BF,BG,BH,BI,BJ,BL," +

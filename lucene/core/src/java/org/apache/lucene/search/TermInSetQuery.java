@@ -382,7 +382,7 @@ public class TermInSetQuery extends Query implements Accountable {
             if (termsEnum.seekExact(term)) {
               sampledCostTotal += termsEnum.docFreq();
               matchingTerms.add(new TermAndState(field, termsEnum));
-              if (matchingTerms.size() > threshold) {
+              if (matchingTerms.size() > 64) {
                 break;
               }
             }

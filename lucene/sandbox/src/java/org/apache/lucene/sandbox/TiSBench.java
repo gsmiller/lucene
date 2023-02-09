@@ -47,7 +47,10 @@ import java.io.LineNumberReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 
@@ -101,24 +104,26 @@ public class TiSBench {
           }
         };
         searcher.setSimilarity(sim);
-        TopDocs td = searcher.search(new MatchAllDocsQuery(), 10000);
+        int numIds = 50000;
+        TopDocs td = searcher.search(new MatchAllDocsQuery(), numIds);
         ScoreDoc[] hits = td.scoreDocs;
-        assert hits.length == 10000;
+        assert hits.length == numIds;
         // this is kind of terrible, but I just need to grab a bunch of ids:
-        BytesRef[] ids = new BytesRef[10000];
-        for (int i = 0; i < 10000; i++) {
+        List<BytesRef> ids = new ArrayList<>(numIds);
+        for (int i = 0; i < numIds; i++) {
           ScoreDoc hit = hits[i];
           String id = reader.storedFields().document(hit.doc).get("id");
           assert id != null;
-          ids[i] = new BytesRef(id);
+          ids.add(new BytesRef(id));
         }
+        Collections.shuffle(ids);
 
         System.out.println("| Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
         System.out.println("|---|---|---|---|");
 //        doBench(reader, LARGE_NAME_TERMS, "id", ids);
 //        doBench(reader, MEDIUM_NAME_TERMS, "id", ids);
 //        doBench(reader, SMALL_NAME_TERMS, "id", ids);
-        doBench(reader, null, "id", ids);
+        doBench(reader, null, "id", ids.toArray(new BytesRef[0]));
         System.out.println("|");
       }
     }

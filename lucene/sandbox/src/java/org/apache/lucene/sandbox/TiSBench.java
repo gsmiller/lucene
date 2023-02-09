@@ -69,16 +69,16 @@ public class TiSBench {
     int docLimit = Integer.parseInt(args[2]);
 
     Path path = Paths.get(indexPath);
-    IOUtils.rm(path);
+//    IOUtils.rm(path);
     try (FSDirectory dir = FSDirectory.open(path)) {
-      System.err.println("Now run indexing");
-      IndexWriterConfig config = new IndexWriterConfig();
-      try (IndexWriter iw = new IndexWriter(dir, config);
-           LineNumberReader reader = new LineNumberReader(new InputStreamReader(Files.newInputStream(Paths.get(geonamesDataPath))))) {
-        long t0 = System.nanoTime();
-        indexDocs(iw, reader, docLimit);
-        System.out.printf(Locale.ROOT, "Indexing time: %d msec%n", (System.nanoTime() - t0) / 1_000_000);
-      }
+//      System.err.println("Now run indexing");
+//      IndexWriterConfig config = new IndexWriterConfig();
+//      try (IndexWriter iw = new IndexWriter(dir, config);
+//           LineNumberReader reader = new LineNumberReader(new InputStreamReader(Files.newInputStream(Paths.get(geonamesDataPath))))) {
+//        long t0 = System.nanoTime();
+//        indexDocs(iw, reader, docLimit);
+//        System.out.printf(Locale.ROOT, "Indexing time: %d msec%n", (System.nanoTime() - t0) / 1_000_000);
+//      }
       System.err.println("Index files: " + Arrays.toString(dir.listAll()));
 
       try (DirectoryReader reader = DirectoryReader.open(dir)) {
@@ -115,9 +115,9 @@ public class TiSBench {
 
         System.out.println("| Large Lead Terms | Medium Lead Terms | Small Lead Terms | No Lead Terms |");
         System.out.println("|---|---|---|---|");
-        doBench(reader, LARGE_NAME_TERMS, "id", ids);
-        doBench(reader, MEDIUM_NAME_TERMS, "id", ids);
-        doBench(reader, SMALL_NAME_TERMS, "id", ids);
+//        doBench(reader, LARGE_NAME_TERMS, "id", ids);
+//        doBench(reader, MEDIUM_NAME_TERMS, "id", ids);
+//        doBench(reader, SMALL_NAME_TERMS, "id", ids);
         doBench(reader, null, "id", ids);
         System.out.println("|");
       }

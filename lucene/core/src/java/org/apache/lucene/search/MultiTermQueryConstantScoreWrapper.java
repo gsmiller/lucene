@@ -159,12 +159,9 @@ final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends
        * On the given leaf context, try to either rewrite to a disjunction if there are few terms,
        * or build a bitset containing matching docs.
        */
-      private WeightOrDocIdSet rewrite(LeafReaderContext context) throws IOException {
-        final Terms terms = context.reader().terms(query.field);
-        if (terms == null) {
-          // field does not exist
-          return new WeightOrDocIdSet((DocIdSet) null);
-        }
+      private WeightOrDocIdSet rewrite(LeafReaderContext context, Terms terms)
+          throws IOException {
+        assert terms != null;
 
         final int fieldDocCount = terms.getDocCount();
         final TermsEnum termsEnum = query.getTermsEnum(terms);
@@ -232,7 +229,12 @@ final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends
 
       @Override
       public BulkScorer bulkScorer(LeafReaderContext context) throws IOException {
-        final WeightOrDocIdSet weightOrBitSet = rewrite(context);
+        final Terms terms = context.reader().terms(query.getField());
+        if (terms == null) {
+          return null;
+        }
+
+        final WeightOrDocIdSet weightOrBitSet = rewrite(context, terms);
         if (weightOrBitSet.weight != null) {
           return weightOrBitSet.weight.bulkScorer(context);
         } else {
@@ -258,13 +260,73 @@ final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends
       }
 
       @Override
-      public Scorer scorer(LeafReaderContext context) throws IOException {
-        final WeightOrDocIdSet weightOrBitSet = rewrite(context);
-        if (weightOrBitSet.weight != null) {
-          return weightOrBitSet.weight.scorer(context);
-        } else {
-          return scorer(weightOrBitSet.set);
+      public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
+        final Terms terms = context.reader().terms(query.getField());
+        if (terms == null) {
+          return null;
         }
+
+        // Estimate the cost. If the MTQ can provide its term count, we can do a better job
+        // estimating.
+        // Cost estimation reasoning is:
+        // 1. If we don't know how many query terms there are, we assume that every term could be
+        //    in the MTQ and estimate the work as the total docs across all terms.
+        // 2. If we know how many query terms there are...
+        //    2a. Assume every query term matches at least one document (queryTermsCount).
+        //    2b. Determine the total number of docs beyond the first one for each term.
+        //        That count provides a ceiling on the number of extra docs that could match beyond
+        //        that first one. (We omit the first since it's already been counted in 2a).
+        // See: LUCENE-10207
+
+        final long cost;
+        final long queryTermsCount = query.getTermsCount();
+        if (queryTermsCount == -1) {
+          cost = terms.getSumDocFreq();
+        } else {
+          long potentialExtraCost = terms.getSumDocFreq();
+          final long indexedTermCount = terms.size();
+          if (indexedTermCount != -1) {
+            potentialExtraCost -= indexedTermCount;
+          }
+          cost = queryTermsCount + potentialExtraCost;
+        }
+
+        final Weight weight = this;
+        return new ScorerSupplier() {
+          @Override
+          public Scorer get(long leadCost) throws IOException {
+            WeightOrDocIdSet weightOrBitSet = rewrite(context, terms);
+            final Scorer scorer;
+            if (weightOrBitSet.weight != null) {
+              scorer = weightOrBitSet.weight.scorer(context);
+            } else {
+              scorer = scorer(weightOrBitSet.set);
+            }
+
+            // It's against the API contract to return a null scorer from a non-null ScoreSupplier.
+            // So if our ScoreSupplier was non-null (i.e., thought there might be hits) but we now
+            // find that there are actually no hits, we need to return an empty Scorer as opposed
+            // to null:
+            return Objects.requireNonNullElseGet(
+                scorer,
+                () ->
+                    new ConstantScoreScorer(weight, score(), scoreMode, DocIdSetIterator.empty()));
+          }
+
+          @Override
+          public long cost() {
+            return cost;
+          }
+        };
+      }
+
+      @Override
+      public Scorer scorer(LeafReaderContext context) throws IOException {
+        final ScorerSupplier scorerSupplier = scorerSupplier(context);
+        if (scorerSupplier == null) {
+          return null;
+        }
+        return scorerSupplier.get(Long.MAX_VALUE);
       }
 
       @Override

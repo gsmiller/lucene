@@ -22,7 +22,6 @@ import org.apache.lucene.index.PrefixCodedTerms.TermIterator;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
-import org.apache.lucene.search.BooleanClause.Occur;
 import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.AttributeSource;
@@ -99,7 +98,7 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
   }
 
   private TermInSetQuery(String field, PrefixCodedTerms termData) {
-    super(field, new DefaultRewriteMethod(termData));
+    super(field, MultiTermQuery.CONSTANT_SCORE_REWRITE);
     this.field = field;
     this.termData = termData;
     termDataHashCode = termData.hashCode();
@@ -249,35 +248,6 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
         seekTerm = iterator.next();
       }
       return seekTerm;
-    }
-  }
-
-  /**
-   * Rewrites to a standard {@code BooleanQuery} when there are up to {@link
-   * TermInSetQuery#BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD} terms; otherwise rewrites using {@link
-   * MultiTermQuery#CONSTANT_SCORE_REWRITE}.
-   */
-  private static final class DefaultRewriteMethod extends RewriteMethod {
-    private final PrefixCodedTerms termData;
-
-    DefaultRewriteMethod(PrefixCodedTerms termData) {
-      this.termData = termData;
-    }
-
-    @Override
-    public Query rewrite(IndexSearcher indexSearcher, MultiTermQuery query) throws IOException {
-      final int threshold =
-          Math.min(BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD, IndexSearcher.getMaxClauseCount());
-      if (termData.size() <= threshold) {
-        BooleanQuery.Builder bq = new BooleanQuery.Builder();
-        TermIterator iterator = termData.iterator();
-        for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
-          bq.add(
-              new TermQuery(new Term(iterator.field(), BytesRef.deepCopyOf(term))), Occur.SHOULD);
-        }
-        return new ConstantScoreQuery(bq.build());
-      }
-      return MultiTermQuery.CONSTANT_SCORE_REWRITE.rewrite(indexSearcher, query);
     }
   }
 }

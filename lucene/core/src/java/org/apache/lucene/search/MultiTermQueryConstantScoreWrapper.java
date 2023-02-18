@@ -159,8 +159,7 @@ final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends
        * On the given leaf context, try to either rewrite to a disjunction if there are few terms,
        * or build a bitset containing matching docs.
        */
-      private WeightOrDocIdSet rewrite(LeafReaderContext context, Terms terms)
-          throws IOException {
+      private WeightOrDocIdSet rewrite(LeafReaderContext context, Terms terms) throws IOException {
         assert terms != null;
 
         final int fieldDocCount = terms.getDocCount();

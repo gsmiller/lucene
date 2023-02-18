@@ -43,8 +43,8 @@ import java.util.List;
 import java.util.SortedSet;
 
 /**
- * Specialization for a disjunction over many terms that behaves like a {@link ConstantScoreQuery}
- * over a {@link BooleanQuery} containing only {@link
+ * Specialization for a disjunction over many terms that, by default, behaves like a {@link
+ * ConstantScoreQuery} over a {@link BooleanQuery} containing only {@link
  * org.apache.lucene.search.BooleanClause.Occur#SHOULD} clauses.
  *
  * <p>For instance in the following example, both {@code q1} and {@code q2} would yield the same
@@ -59,9 +59,14 @@ import java.util.SortedSet;
  * Query q2 = new ConstantScoreQuery(bq);
  * </pre>
  *
- * <p>When there are few terms, this query executes like a regular disjunction. However, when there
- * are many terms, instead of merging iterators on the fly, it will populate a bit set with matching
- * docs and return a {@link Scorer} over this bit set.
+ * <p>Unless a custom {@link MultiTermQuery.RewriteMethod} is provided, this query executes like a
+ * regular disjunction where there are few terms. However, when there are many terms, instead of
+ * merging iterators on the fly, it will populate a bit set with matching docs and return a {@link
+ * Scorer} over this bit set.
+ *
+ * <p>Users may also provide a custom {@link MultiTermQuery.RewriteMethod} to define different
+ * execution behavior, such as relying on doc values (see: {@link DocValuesRewriteMethod}), or if
+ * scores are required (see: {@link MultiTermQuery#SCORING_BOOLEAN_REWRITE}).
  *
  * <p>NOTE: This query produces scores that are equal to its boost
  */
@@ -125,6 +130,11 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
     }
 
     return builder.finish();
+  }
+
+  @Override
+  public long getTermsCount() throws IOException {
+    return termData.size();
   }
 
   @Override

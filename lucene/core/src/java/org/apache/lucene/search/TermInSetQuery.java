@@ -66,8 +66,12 @@ import org.apache.lucene.util.automaton.Operations;
  *
  * <p>Users may also provide a custom {@link MultiTermQuery.RewriteMethod} to define different
  * execution behavior, such as relying on doc values (see: {@link DocValuesRewriteMethod}), or if
- * scores are required (see: {@link MultiTermQuery#SCORING_BOOLEAN_REWRITE}). See {@link
- * MultiTermQuery} documentation for more rewrite options.
+ * scores are required (see: {@link MultiTermQuery#SCORING_BOOLEAN_REWRITE}). Assuming you don't
+ * need scores, if the terms in your query follow a Zipfian-like distribution against your corpus,
+ * as would be common with natural language, the default behavior is probably what you want. On the
+ * other hand, if your terms follow a different distribution, you may find
+ * {@link MultiTermQuery#CONSTANT_SCORE_REWRITE} to be more performant. See {@link
+ * MultiTermQuery} documentation for more rewrite option documentation.
  *
  * <p>NOTE: This query produces scores that are equal to its boost
  */

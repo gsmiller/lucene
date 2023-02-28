@@ -60,12 +60,14 @@ import org.apache.lucene.util.automaton.Operations;
  *
  * <p>Unless a custom {@link MultiTermQuery.RewriteMethod} is provided, this query executes like a
  * regular disjunction where there are few terms. However, when there are many terms, instead of
- * merging iterators on the fly, it will populate a bit set with matching docs and return a {@link
- * Scorer} over this bit set.
+ * merging iterators on the fly, it will populate a bit set with matching docs for the least-costly
+ * terms and maintain a size-limited set of more costly iterators that are merged on the fly. For
+ * more details, see {@link MultiTermQuery#CONSTANT_SCORE_BLENDED_REWRITE}.
  *
  * <p>Users may also provide a custom {@link MultiTermQuery.RewriteMethod} to define different
  * execution behavior, such as relying on doc values (see: {@link DocValuesRewriteMethod}), or if
- * scores are required (see: {@link MultiTermQuery#SCORING_BOOLEAN_REWRITE}).
+ * scores are required (see: {@link MultiTermQuery#SCORING_BOOLEAN_REWRITE}). See {@link
+ * MultiTermQuery} documentation for more rewrite options.
  *
  * <p>NOTE: This query produces scores that are equal to its boost
  */
@@ -73,8 +75,6 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
 
   private static final long BASE_RAM_BYTES_USED =
       RamUsageEstimator.shallowSizeOfInstance(TermInSetQuery.class);
-  // Same threshold as MultiTermQueryConstantScoreWrapper
-  static final int BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD = 16;
 
   private final String field;
   private final PrefixCodedTerms termData;
@@ -102,7 +102,7 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
   }
 
   private TermInSetQuery(String field, PrefixCodedTerms termData) {
-    super(field, MultiTermQuery.CONSTANT_SCORE_REWRITE);
+    super(field, MultiTermQuery.CONSTANT_SCORE_BLENDED_REWRITE);
     this.field = field;
     this.termData = termData;
     termDataHashCode = termData.hashCode();
@@ -113,7 +113,7 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
     // already sorted if we are a SortedSet with natural order
     boolean sorted =
         terms instanceof SortedSet && ((SortedSet<BytesRef>) terms).comparator() == null;
-    if (!sorted) {
+    if (sorted == false) {
       ArrayUtil.timSort(sortedTerms);
     }
     PrefixCodedTerms.Builder builder = new PrefixCodedTerms.Builder();
@@ -218,11 +218,13 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
     return new SetEnum(terms.iterator());
   }
 
-  // like a baby AutomatonTermsEnum, ping-pong intersects the terms dict against our
-  // PrefixCodedTerms
-  class SetEnum extends FilteredTermsEnum {
-    final TermIterator iterator;
-    BytesRef seekTerm;
+  /**
+   * Like a baby {@link org.apache.lucene.index.AutomatonTermsEnum}, ping-pong intersects the terms
+   * dict against our encoded query terms.
+   */
+  private class SetEnum extends FilteredTermsEnum {
+    private final TermIterator iterator;
+    private BytesRef seekTerm;
 
     SetEnum(TermsEnum termsEnum) {
       super(termsEnum);
@@ -233,7 +235,7 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
     @Override
     protected AcceptStatus accept(BytesRef term) throws IOException {
       // next() our iterator until it is >= the incoming term
-      // if it matches exactly, its a hit, otherwise its a miss
+      // if it matches exactly, it's a hit, otherwise it's a miss
       int cmp = 0;
       while (seekTerm != null && (cmp = seekTerm.compareTo(term)) < 0) {
         seekTerm = iterator.next();

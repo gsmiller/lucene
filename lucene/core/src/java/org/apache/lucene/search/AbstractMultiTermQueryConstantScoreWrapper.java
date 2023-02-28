@@ -40,7 +40,7 @@ import org.apache.lucene.util.RamUsageEstimator;
 abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends Query
     implements Accountable {
   // mtq that matches 16 terms or less will be executed as a regular disjunction
-  private static final int BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD = 16;
+  static final int BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD = 16;
 
   protected final Q query;
 

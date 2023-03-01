@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.TermState;
 import org.apache.lucene.index.TermStates;
@@ -28,6 +29,7 @@ import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.DocIdSetBuilder;
 import org.apache.lucene.util.RamUsageEstimator;
 
 /**
@@ -179,6 +181,48 @@ abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQue
       return rewriteInner(context, fieldDocCount, terms, termsEnum, collectedTerms);
     }
 
+    protected WeightOrDocIdSetIterator rewriteToBitset(
+        LeafReaderContext context,
+        int fieldDocCount,
+        Terms terms,
+        TermsEnum termsEnum,
+        List<TermAndState> collectedTerms)
+        throws IOException {
+      DocIdSetBuilder builder = new DocIdSetBuilder(context.reader().maxDoc(), terms);
+      PostingsEnum docs = null;
+
+      // Handle the already-collected terms:
+      if (collectedTerms.isEmpty() == false) {
+        TermsEnum termsEnum2 = terms.iterator();
+        for (TermAndState t : collectedTerms) {
+          termsEnum2.seekExact(t.term, t.state);
+          docs = termsEnum2.postings(docs, PostingsEnum.NONE);
+          builder.add(docs);
+        }
+      }
+
+      // Then keep filling the bit set with remaining terms:
+      do {
+        docs = termsEnum.postings(docs, PostingsEnum.NONE);
+        // If a term contains all docs with a value for the specified field, we can discard the
+        // other terms and just use the dense term's postings:
+        int docFreq = termsEnum.docFreq();
+        if (fieldDocCount == docFreq) {
+          TermStates termStates = new TermStates(searcher.getTopReaderContext());
+          termStates.register(
+              termsEnum.termState(), context.ord, docFreq, termsEnum.totalTermFreq());
+          Query query =
+              new ConstantScoreQuery(
+                  new TermQuery(new Term(q.field, termsEnum.term()), termStates));
+          Weight weight = searcher.rewrite(query).createWeight(searcher, scoreMode, score());
+          return new WeightOrDocIdSetIterator(weight);
+        }
+        builder.add(docs);
+      } while (termsEnum.next() != null);
+
+      return new WeightOrDocIdSetIterator(builder.build().iterator());
+    }
+
     private boolean collectTerms(int fieldDocCount, TermsEnum termsEnum, List<TermAndState> terms)
         throws IOException {
       final int threshold =
@@ -213,11 +257,21 @@ abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQue
 
     @Override
     public BulkScorer bulkScorer(LeafReaderContext context) throws IOException {
-      final Terms terms = context.reader().terms(q.getField());
+      final Terms terms = context.reader().terms(q.field);
       if (terms == null) {
+        // field does not exist
         return null;
       }
-      final WeightOrDocIdSetIterator weightOrIterator = rewrite(context, terms);
+
+      final int fieldDocCount = terms.getDocCount();
+      final TermsEnum termsEnum = q.getTermsEnum(terms);
+      assert termsEnum != null;
+
+      final List<TermAndState> collectedTerms = new ArrayList<>();
+      collectTerms(fieldDocCount, termsEnum, collectedTerms);
+
+      final WeightOrDocIdSetIterator weightOrIterator =
+          rewriteToBitset(context, fieldDocCount, terms, termsEnum, collectedTerms);
       if (weightOrIterator == null) {
         return null;
       } else if (weightOrIterator.weight != null) {

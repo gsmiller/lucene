@@ -262,25 +262,20 @@ abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQue
         return null;
       }
 
-      final int fieldDocCount = terms.getDocCount();
       final TermsEnum termsEnum = q.getTermsEnum(terms);
       assert termsEnum != null;
 
-      final List<TermAndState> collectedTerms = new ArrayList<>();
-      collectTerms(fieldDocCount, termsEnum, collectedTerms);
+      List<BulkScorer> scorers = new ArrayList<>();
+      for (BytesRef term = termsEnum.next(); term != null; term = termsEnum.next()) {
+        Query termQuery = new TermQuery(new Term(q.field, term));
+        Weight w = termQuery.createWeight(searcher, scoreMode, score());
+        scorers.add(w.bulkScorer(context));
+      }
 
-      final WeightOrDocIdSetIterator weightOrIterator =
-          rewriteToBitset(context, fieldDocCount, terms, termsEnum, collectedTerms);
-      if (weightOrIterator == null) {
+      if (scorers.isEmpty()) {
         return null;
-      } else if (weightOrIterator.weight != null) {
-        return weightOrIterator.weight.bulkScorer(context);
       } else {
-        final Scorer scorer = scorerForIterator(weightOrIterator.iterator);
-        if (scorer == null) {
-          return null;
-        }
-        return new DefaultBulkScorer(scorer);
+        return new BooleanScorer(null, scorers, 1, false);
       }
     }
 

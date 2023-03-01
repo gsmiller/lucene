@@ -102,16 +102,16 @@ public class TiSBench {
     System.out.println("|---|---|---|---|---|");
 
     System.out.print("| TiS Original ");
-    doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.TIS_ORIGINAL);
-    doBench(reader, MEDIUM_NAME_TERMS, filterField, filterTerms, Approach.TIS_ORIGINAL);
-    doBench(reader, SMALL_NAME_TERMS, filterField, filterTerms, Approach.TIS_ORIGINAL);
+//    doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.TIS_ORIGINAL);
+//    doBench(reader, MEDIUM_NAME_TERMS, filterField, filterTerms, Approach.TIS_ORIGINAL);
+//    doBench(reader, SMALL_NAME_TERMS, filterField, filterTerms, Approach.TIS_ORIGINAL);
     doBench(reader, null, filterField, filterTerms, Approach.TIS_ORIGINAL);
     System.out.println("|");
 
     System.out.print("| TiS ");
-    doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.TIS);
-    doBench(reader, MEDIUM_NAME_TERMS, filterField, filterTerms, Approach.TIS);
-    doBench(reader, SMALL_NAME_TERMS, filterField, filterTerms, Approach.TIS);
+//    doBench(reader, LARGE_NAME_TERMS, filterField, filterTerms, Approach.TIS);
+//    doBench(reader, MEDIUM_NAME_TERMS, filterField, filterTerms, Approach.TIS);
+//    doBench(reader, SMALL_NAME_TERMS, filterField, filterTerms, Approach.TIS);
     doBench(reader, null, filterField, filterTerms, Approach.TIS);
     System.out.println("|");
   }

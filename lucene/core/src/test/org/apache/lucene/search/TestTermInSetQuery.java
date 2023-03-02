@@ -60,11 +60,11 @@ public class TestTermInSetQuery extends LuceneTestCase {
 
     Set<BytesRef> randomTerms = new HashSet<>();
     while (randomTerms.size()
-        < AbstractMultiTermQueryConstantScoreWrapper.BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD) {
+        < MultiTermQueryConstantScoreWrapper.BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD) {
       randomTerms.add(new BytesRef(TestUtil.randomAnalysisString(random(), 10, true)));
     }
     assert randomTerms.size()
-        == AbstractMultiTermQueryConstantScoreWrapper.BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD;
+        == MultiTermQueryConstantScoreWrapper.BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD;
     BytesRef[] otherTerms = new BytesRef[randomTerms.size()];
     int idx = 0;
     for (BytesRef term : randomTerms) {
@@ -329,7 +329,7 @@ public class TestTermInSetQuery extends LuceneTestCase {
     final int numTerms =
         TestUtil.nextInt(
             random(),
-            AbstractMultiTermQueryConstantScoreWrapper.BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD + 1,
+            MultiTermQueryConstantScoreWrapper.BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD + 1,
             100);
     for (int i = 0; i < numTerms; ++i) {
       final BytesRef term = newBytesRef(RandomStrings.randomUnicodeOfCodepointLength(random(), 10));

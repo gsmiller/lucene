@@ -33,7 +33,7 @@ import org.apache.lucene.util.PriorityQueue;
  * limited number of the most costly terms while rewriting the remaining terms into a filter bitset.
  */
 final class MultiTermQueryConstantScoreBlendedWrapper<Q extends MultiTermQuery>
-    extends MultiTermQueryConstantScoreWrapper<Q> {
+    extends AbstractMultiTermQueryConstantScoreWrapper<Q> {
   // postings lists under this threshold will always be "pre-processed" into a bitset
   private static final int POSTINGS_PRE_PROCESS_THRESHOLD = 512;
 

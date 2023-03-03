@@ -160,8 +160,7 @@ abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQue
         int fieldDocCount,
         Terms terms,
         TermsEnum termsEnum,
-        List<TermAndState> collectedTerms,
-        boolean allTermsCollected)
+        List<TermAndState> collectedTerms)
         throws IOException {
       DocIdSetBuilder builder = new DocIdSetBuilder(context.reader().maxDoc(), terms);
       PostingsEnum docs = null;
@@ -176,26 +175,24 @@ abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQue
         }
       }
 
-      if (allTermsCollected == false) {
-        // Then keep filling the bit set with remaining terms:
-        do {
-          docs = termsEnum.postings(docs, PostingsEnum.NONE);
-          // If a term contains all docs with a value for the specified field, we can discard the
-          // other terms and just use the dense term's postings:
-          int docFreq = termsEnum.docFreq();
-          if (fieldDocCount == docFreq) {
-            TermStates termStates = new TermStates(searcher.getTopReaderContext());
-            termStates.register(
-                termsEnum.termState(), context.ord, docFreq, termsEnum.totalTermFreq());
-            Query query =
-                new ConstantScoreQuery(
-                    new TermQuery(new Term(q.field, termsEnum.term()), termStates));
-            Weight weight = searcher.rewrite(query).createWeight(searcher, scoreMode, score());
-            return new WeightOrDocIdSetIterator(weight);
-          }
-          builder.add(docs);
-        } while (termsEnum.next() != null);
-      }
+      // Then keep filling the bit set with remaining terms:
+      do {
+        docs = termsEnum.postings(docs, PostingsEnum.NONE);
+        // If a term contains all docs with a value for the specified field, we can discard the
+        // other terms and just use the dense term's postings:
+        int docFreq = termsEnum.docFreq();
+        if (fieldDocCount == docFreq) {
+          TermStates termStates = new TermStates(searcher.getTopReaderContext());
+          termStates.register(
+              termsEnum.termState(), context.ord, docFreq, termsEnum.totalTermFreq());
+          Query query =
+              new ConstantScoreQuery(
+                  new TermQuery(new Term(q.field, termsEnum.term()), termStates));
+          Weight weight = searcher.rewrite(query).createWeight(searcher, scoreMode, score());
+          return new WeightOrDocIdSetIterator(weight);
+        }
+        builder.add(docs);
+      } while (termsEnum.next() != null);
 
       return new WeightOrDocIdSetIterator(builder.build().iterator());
     }
@@ -270,11 +267,24 @@ abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQue
       final TermsEnum termsEnum = q.getTermsEnum(terms);
       assert termsEnum != null;
 
+      final WeightOrDocIdSetIterator weightOrIterator;
       final List<TermAndState> collectedTerms = new ArrayList<>();
-      boolean allTermsCollected = collectTerms(fieldDocCount, termsEnum, collectedTerms);
+      if (collectTerms(fieldDocCount, termsEnum, collectedTerms)) {
+        // build a boolean query
+        BooleanQuery.Builder bq = new BooleanQuery.Builder();
+        for (TermAndState t : collectedTerms) {
+          final TermStates termStates = new TermStates(searcher.getTopReaderContext());
+          termStates.register(t.state, context.ord, t.docFreq, t.totalTermFreq);
+          bq.add(new TermQuery(new Term(q.field, t.term), termStates), BooleanClause.Occur.SHOULD);
+        }
+        Query q = new ConstantScoreQuery(bq.build());
+        final Weight weight = searcher.rewrite(q).createWeight(searcher, scoreMode, score());
+        weightOrIterator = new WeightOrDocIdSetIterator(weight);
+      } else {
+        weightOrIterator =
+            rewriteToBitset(context, fieldDocCount, terms, termsEnum, collectedTerms);
+      }
 
-      final WeightOrDocIdSetIterator weightOrIterator =
-          rewriteToBitset(context, fieldDocCount, terms, termsEnum, collectedTerms, allTermsCollected);
       if (weightOrIterator == null) {
         return null;
       } else if (weightOrIterator.weight != null) {

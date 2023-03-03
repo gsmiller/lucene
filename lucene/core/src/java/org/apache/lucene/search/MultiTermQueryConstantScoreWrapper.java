@@ -51,7 +51,7 @@ final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery>
           TermsEnum termsEnum,
           List<TermAndState> collectedTerms)
           throws IOException {
-        return rewriteToBitset(context, fieldDocCount, terms, termsEnum, collectedTerms);
+        return rewriteToBitset(context, fieldDocCount, terms, termsEnum, collectedTerms, false);
       }
     };
   }

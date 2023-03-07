@@ -316,21 +316,6 @@ public final class FixedBitSet extends BitSet {
 //    return -1;
 
     int word = startPos >> 6;
-    long w = bits[word];
-    if (w != 0xffffffffffffffffL) {
-      int offset = startPos % 64;
-      for (; offset < 64; offset++) {
-        long bitmask = 1L << offset;
-        if ((w & bitmask) == 0) {
-          break;
-        }
-      }
-      if (offset < 64) {
-        return (word << 6) + offset;
-      }
-    }
-
-    word++;
     for ( ; word < numWords; word++) {
       if (bits[word] != 0xffffffffffffffffL) {
         break;
@@ -340,17 +325,7 @@ public final class FixedBitSet extends BitSet {
       return -1;
     }
 
-    w = bits[word];
-    int i = 0;
-    while ((w & (1L << i)) != 0L) {
-      i++;
-    }
-    assert i < 64;
-    if (i == numBits) {
-      return -1;
-    }
-
-    return (word << 6) + i;
+    return Math.max(startPos, word << 6);
   }
 
   @Override
@@ -382,6 +357,7 @@ public final class FixedBitSet extends BitSet {
         } else {
           if (nextUnsetBit(nextDoc) == nextDoc) {
             set(nextDoc);
+            nextDoc++;
           }
         }
       }

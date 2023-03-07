@@ -307,6 +307,52 @@ public final class FixedBitSet extends BitSet {
     return -1;
   }
 
+  private int nextUnsetBit(int startPos) {
+//    for (int i = startPos; i < numBits; i++) {
+//      if (get(i) == false) {
+//        return i;
+//      }
+//    }
+//    return -1;
+
+    int word = startPos >> 6;
+    long w = bits[word];
+    if (w != 0xffffffffffffffffL) {
+      int offset = startPos % 64;
+      for (; offset < 64; offset++) {
+        long bitmask = 1L << offset;
+        if ((w & bitmask) == 0) {
+          break;
+        }
+      }
+      if (offset < 64) {
+        return (word << 6) + offset;
+      }
+    }
+
+    word++;
+    for ( ; word < numWords; word++) {
+      if (bits[word] != 0xffffffffffffffffL) {
+        break;
+      }
+    }
+    if (word == numWords) {
+      return -1;
+    }
+
+    w = bits[word];
+    int i = 0;
+    while ((w & (1L << i)) != 0L) {
+      i++;
+    }
+    assert i < 64;
+    if (i == numBits) {
+      return -1;
+    }
+
+    return (word << 6) + i;
+  }
+
   @Override
   public void or(DocIdSetIterator iter) throws IOException {
     if (BitSetIterator.getFixedBitSetOrNull(iter) != null) {
@@ -318,7 +364,27 @@ public final class FixedBitSet extends BitSet {
       DocBaseBitSetIterator baseIter = (DocBaseBitSetIterator) iter;
       or(baseIter.getDocBase() >> 6, baseIter.getBitSet());
     } else {
-      super.or(iter);
+      checkUnpositioned(iter);
+      int nextDoc = 0;
+      while (true) {
+        int nextUnset = nextUnsetBit(nextDoc);
+        if (nextUnset == -1 || nextUnset == DocIdSetIterator.NO_MORE_DOCS) {
+          break;
+        }
+        nextDoc = iter.advance(nextUnset);
+        assert nextDoc >= nextUnset;
+        if (nextDoc == DocIdSetIterator.NO_MORE_DOCS) {
+          break;
+        }
+        if (nextUnset == nextDoc) {
+          set(nextDoc);
+          nextDoc++;
+        } else {
+          if (nextUnsetBit(nextDoc) == nextDoc) {
+            set(nextDoc);
+          }
+        }
+      }
     }
   }
 

@@ -49,7 +49,9 @@ import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
+import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.IOUtils;
+import org.apache.lucene.util.IntsRefBuilder;
 import org.apache.lucene.util.LongsRef;
 import org.apache.lucene.util.MathUtil;
 import org.apache.lucene.util.StringHelper;
@@ -545,28 +547,38 @@ final class Lucene90DocValuesConsumer extends DocValuesConsumer {
     if (primarySort) {
       final SortedDocValues values = valuesProducer.getSorted(field);
       meta.writeByte((byte) 1);
-      addOrdsJumpTable(values);
+      addOrdsJumpTable(values, (int) valuesStats[0]);
     } else {
       meta.writeByte((byte) 0);
     }
   }
 
-  private void addOrdsJumpTable(SortedDocValues values) throws IOException {
+  private void addOrdsJumpTable(SortedDocValues values, int numDocsWithValue) throws IOException {
     meta.writeInt(DIRECT_MONOTONIC_BLOCK_SHIFT);
     final long start = data.getFilePointer();
     final ByteBuffersDataOutput addressBuffer = new ByteBuffersDataOutput();
     final ByteBuffersIndexOutput addressOutput =
         new ByteBuffersIndexOutput(addressBuffer, "temp", "temp");
 
-    final DirectMonotonicWriter writer =
-        DirectMonotonicWriter.getInstance(
-            meta, addressOutput, values.getValueCount(), DIRECT_MONOTONIC_BLOCK_SHIFT);
+    FixedBitSet transitionDocs = new FixedBitSet(numDocsWithValue);
     values.nextDoc();
     int doc = values.advanceOrd();
+    int transitions = 0;
     while (doc != DocIdSetIterator.NO_MORE_DOCS) {
-      writer.add(doc);
+      transitionDocs.set(doc);
+      transitions++;
       doc = values.advanceOrd();
     }
+
+    final DirectMonotonicWriter writer =
+        DirectMonotonicWriter.getInstance(
+            meta, addressOutput, transitions + 1, DIRECT_MONOTONIC_BLOCK_SHIFT);
+
+    doc = -1;
+    while ((doc = transitionDocs.nextSetBit(doc + 1)) != DocIdSetIterator.NO_MORE_DOCS) {
+      writer.add(doc);
+    }
+
     writer.add(DocIdSetIterator.NO_MORE_DOCS);
     writer.finish();
     addressBuffer.copyTo(data);

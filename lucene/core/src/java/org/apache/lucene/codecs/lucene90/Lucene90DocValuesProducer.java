@@ -998,13 +998,26 @@ final class Lucene90DocValuesProducer extends DocValuesProducer {
             data.randomAccessSlice(entry.ordsJumpTableEntry.start, entry.ordsJumpTableEntry.length);
         final DirectMonotonicReader ordsReader =
             DirectMonotonicReader.getInstance(entry.ordsJumpTableEntry.values, addressesSlice);
-        ordSupplier =
-            () -> {
-              if (docID() == DocIdSetIterator.NO_MORE_DOCS) {
-                return DocIdSetIterator.NO_MORE_DOCS;
+        ordSupplier = new OrdSupplier() {
+          int nextIdx;
+
+          @Override
+          public int advanceOrd() throws IOException {
+            int doc = DocIdSetIterator.NO_MORE_DOCS;
+            if (docID() == DocIdSetIterator.NO_MORE_DOCS) {
+              return doc;
+            }
+            while (true) {
+              doc = (int) ordsReader.get(nextIdx);
+              if (doc > docID()) {
+                break;
               }
-              return advance((int) ordsReader.get(ordValue()));
-            };
+              nextIdx++;
+            }
+
+            return doc;
+          }
+        };
       } else {
         ordSupplier = super::advanceOrd;
       }

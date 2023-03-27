@@ -26,6 +26,8 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
+
+import com.carrotsearch.randomizedtesting.generators.RandomNumbers;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.codecs.Codec;
@@ -926,7 +928,7 @@ public class TestLucene90DocValuesFormat extends BaseCompressingDocValuesFormatT
     }
     IndexWriter writer = new IndexWriter(dir, iwc);
     final int numDocs = atLeast(1000);
-    int termsSize = random().nextInt(1, rarely() ? numDocs : numDocs >> 6);
+    int termsSize = RandomNumbers.randomIntBetween(random(), 1, rarely() ? numDocs : numDocs >> 6);
     List<BytesRef> terms = new ArrayList<>(termsSize);
     for (int i = 0; i < termsSize; i++) {
       byte[] bytes = new byte[10];

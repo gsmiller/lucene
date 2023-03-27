@@ -575,7 +575,9 @@ final class Lucene90DocValuesConsumer extends DocValuesConsumer {
             meta, addressOutput, transitions + 1, DIRECT_MONOTONIC_BLOCK_SHIFT);
 
     doc = -1;
-    while ((doc = transitionDocs.nextSetBit(doc + 1)) != DocIdSetIterator.NO_MORE_DOCS) {
+    for (int i = 0; i < transitions; i++) {
+      doc = transitionDocs.nextSetBit(doc + 1);
+      assert doc != DocIdSetIterator.NO_MORE_DOCS;
       writer.add(doc);
     }
 

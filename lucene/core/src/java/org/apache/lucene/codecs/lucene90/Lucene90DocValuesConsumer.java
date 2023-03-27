@@ -547,20 +547,20 @@ final class Lucene90DocValuesConsumer extends DocValuesConsumer {
     if (primarySort) {
       final SortedDocValues values = valuesProducer.getSorted(field);
       meta.writeByte((byte) 1);
-      addOrdsJumpTable(values, (int) valuesStats[0]);
+      addOrdsJumpTable(values);
     } else {
       meta.writeByte((byte) 0);
     }
   }
 
-  private void addOrdsJumpTable(SortedDocValues values, int numDocsWithValue) throws IOException {
+  private void addOrdsJumpTable(SortedDocValues values) throws IOException {
     meta.writeInt(DIRECT_MONOTONIC_BLOCK_SHIFT);
     final long start = data.getFilePointer();
     final ByteBuffersDataOutput addressBuffer = new ByteBuffersDataOutput();
     final ByteBuffersIndexOutput addressOutput =
         new ByteBuffersIndexOutput(addressBuffer, "temp", "temp");
 
-    FixedBitSet transitionDocs = new FixedBitSet(numDocsWithValue);
+    FixedBitSet transitionDocs = new FixedBitSet(maxDoc);
     values.nextDoc();
     int doc = values.advanceOrd();
     int transitions = 0;

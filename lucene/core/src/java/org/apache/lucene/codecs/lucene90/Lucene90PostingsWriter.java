@@ -25,6 +25,8 @@ import static org.apache.lucene.codecs.lucene90.Lucene90PostingsFormat.TERMS_COD
 import static org.apache.lucene.codecs.lucene90.Lucene90PostingsFormat.VERSION_CURRENT;
 
 import java.io.IOException;
+import java.util.Arrays;
+
 import org.apache.lucene.codecs.BlockTermState;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.CompetitiveImpactAccumulator;
@@ -368,17 +370,11 @@ public final class Lucene90PostingsWriter extends PushPostingsWriterBase {
     } else {
       singletonDocID = -1;
       // vInt encode the remaining doc deltas and freqs:
-      for (int i = 0; i < docBufferUpto; i++) {
-        final int docDelta = (int) docDeltaBuffer[i];
-        final int freq = (int) freqBuffer[i];
-        if (!writeFreqs) {
-          docOut.writeVInt(docDelta);
-        } else if (freq == 1) {
-          docOut.writeVInt((docDelta << 1) | 1);
-        } else {
-          docOut.writeVInt(docDelta << 1);
-          docOut.writeVInt(freq);
-        }
+      Arrays.fill(docDeltaBuffer, docBufferUpto, BLOCK_SIZE, 0);
+      pforUtil.encode(docDeltaBuffer, docOut);
+      if (writeFreqs) {
+        Arrays.fill(freqBuffer, docBufferUpto, BLOCK_SIZE, 0);
+        pforUtil.encode(freqBuffer, docOut);
       }
     }
 

@@ -469,8 +469,14 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
         blockUpto++;
       } else {
         // Read vInts:
-        readVIntBlock(docIn, docBuffer, freqBuffer, left, indexHasFreq);
-        prefixSum(docBuffer, left, accum);
+        pforUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+        if (indexHasFreq) {
+          if (needsFreq) {
+            isFreqsRead = false;
+          } else {
+            pforUtil.skip(docIn); // skip over freqBuffer if we don't need them at all
+          }
+        }
         docBuffer[left] = NO_MORE_DOCS;
         blockUpto += left;
       }
@@ -760,8 +766,8 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
         docBuffer[1] = NO_MORE_DOCS;
         blockUpto++;
       } else {
-        readVIntBlock(docIn, docBuffer, freqBuffer, left, true);
-        prefixSum(docBuffer, left, accum);
+        pforUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+        pforUtil.decode(docIn, freqBuffer);
         docBuffer[left] = NO_MORE_DOCS;
         blockUpto += left;
       }
@@ -1147,8 +1153,10 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
         }
         blockUpto += BLOCK_SIZE;
       } else {
-        readVIntBlock(docIn, docBuffer, freqBuffer, left, indexHasFreqs);
-        prefixSum(docBuffer, left, accum);
+        pforUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+        if (indexHasFreqs) {
+          pforUtil.decode(docIn, freqBuffer);
+        }
         docBuffer[left] = NO_MORE_DOCS;
         blockUpto += left;
       }
@@ -1355,8 +1363,8 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
         pforUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
         pforUtil.decode(docIn, freqBuffer);
       } else {
-        readVIntBlock(docIn, docBuffer, freqBuffer, left, true);
-        prefixSum(docBuffer, left, accum);
+        pforUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+        pforUtil.decode(docIn, freqBuffer);
         docBuffer[left] = NO_MORE_DOCS;
       }
       accum = docBuffer[BLOCK_SIZE - 1];
@@ -1747,8 +1755,10 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
               false; // freq block will be loaded lazily when necessary, we don't load it here
         }
       } else {
-        readVIntBlock(docIn, docBuffer, freqBuffer, left, indexHasFreq);
-        prefixSum(docBuffer, left, accum);
+        pforUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+        if (indexHasFreq) {
+          isFreqsRead = false;
+        }
         docBuffer[left] = NO_MORE_DOCS;
       }
       accum = docBuffer[BLOCK_SIZE - 1];

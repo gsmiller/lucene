@@ -23,10 +23,12 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.SortedSet;
-import org.apache.lucene.index.FilteredTermsEnum;
+import org.apache.lucene.index.ImpactsEnum;
+import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.PrefixCodedTerms;
 import org.apache.lucene.index.PrefixCodedTerms.TermIterator;
 import org.apache.lucene.index.Term;
+import org.apache.lucene.index.TermState;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.util.Accountable;
@@ -211,50 +213,87 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
 
   @Override
   protected TermsEnum getTermsEnum(Terms terms, AttributeSource atts) throws IOException {
-    return new SetEnum(terms.iterator());
+    return new IntersectedTermsEnum(terms.iterator());
   }
 
-  /**
-   * Like a baby {@link org.apache.lucene.index.AutomatonTermsEnum}, ping-pong intersects the terms
-   * dict against our encoded query terms.
-   */
-  private class SetEnum extends FilteredTermsEnum {
-    private final TermIterator iterator;
-    private BytesRef seekTerm;
+  private class IntersectedTermsEnum extends TermsEnum {
+    private final TermsEnum indexTermsEnum;
+    private final TermIterator queryTermsIterator;
 
-    SetEnum(TermsEnum termsEnum) {
-      super(termsEnum);
-      iterator = termData.iterator();
-      seekTerm = iterator.next();
+    IntersectedTermsEnum(TermsEnum indexTermsEnum) {
+      this.indexTermsEnum = indexTermsEnum;
+      this.queryTermsIterator = termData.iterator();
     }
 
     @Override
-    protected AcceptStatus accept(BytesRef term) throws IOException {
-      // next() our iterator until it is >= the incoming term
-      // if it matches exactly, it's a hit, otherwise it's a miss
-      int cmp = 0;
-      while (seekTerm != null && (cmp = seekTerm.compareTo(term)) < 0) {
-        seekTerm = iterator.next();
-      }
-      if (seekTerm == null) {
-        return AcceptStatus.END;
-      } else if (cmp == 0) {
-        return AcceptStatus.YES_AND_SEEK;
-      } else {
-        return AcceptStatus.NO_AND_SEEK;
-      }
+    public AttributeSource attributes() {
+      return indexTermsEnum.attributes();
     }
 
     @Override
-    protected BytesRef nextSeekTerm(BytesRef currentTerm) throws IOException {
-      // next() our iterator until it is > the currentTerm, must always make progress.
-      if (currentTerm == null) {
-        return seekTerm;
+    public BytesRef term() throws IOException {
+      return indexTermsEnum.term();
+    }
+
+    @Override
+    public long ord() throws IOException {
+      return indexTermsEnum.ord();
+    }
+
+    @Override
+    public int docFreq() throws IOException {
+      return indexTermsEnum.docFreq();
+    }
+
+    @Override
+    public long totalTermFreq() throws IOException {
+      return indexTermsEnum.totalTermFreq();
+    }
+
+    @Override
+    public PostingsEnum postings(PostingsEnum reuse, int flags) throws IOException {
+      return indexTermsEnum.postings(reuse, flags);
+    }
+
+    @Override
+    public ImpactsEnum impacts(int flags) throws IOException {
+      return indexTermsEnum.impacts(flags);
+    }
+
+    @Override
+    public TermState termState() throws IOException {
+      return indexTermsEnum.termState();
+    }
+
+    @Override
+    public BytesRef next() throws IOException {
+      BytesRef nextTerm;
+      while ((nextTerm = queryTermsIterator.next()) != null) {
+        if (indexTermsEnum.seekExact(nextTerm)) {
+          break;
+        }
       }
-      while (seekTerm != null && seekTerm.compareTo(currentTerm) <= 0) {
-        seekTerm = iterator.next();
-      }
-      return seekTerm;
+      return nextTerm;
+    }
+
+    @Override
+    public boolean seekExact(BytesRef text) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void seekExact(long ord) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void seekExact(BytesRef term, TermState state) throws IOException {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public SeekStatus seekCeil(BytesRef text) throws IOException {
+      throw new UnsupportedOperationException();
     }
   }
 }

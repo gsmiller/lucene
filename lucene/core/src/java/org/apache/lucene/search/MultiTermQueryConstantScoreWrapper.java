@@ -34,14 +34,14 @@ import org.apache.lucene.util.DocIdSetBuilder;
 final class MultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery>
     extends AbstractMultiTermQueryConstantScoreWrapper<Q> {
 
-  MultiTermQueryConstantScoreWrapper(Q query) {
-    super(query);
+  MultiTermQueryConstantScoreWrapper(Q query, MultiTermQuery.RewriteMethod rewriteMethod) {
+    super(query, rewriteMethod);
   }
 
   @Override
   public Weight createWeight(IndexSearcher searcher, ScoreMode scoreMode, float boost)
       throws IOException {
-    return new RewritingWeight(query, boost, scoreMode, searcher) {
+    return new RewritingWeight(query, rewriteMethod, boost, scoreMode, searcher) {
 
       @Override
       protected WeightOrDocIdSetIterator rewriteInner(

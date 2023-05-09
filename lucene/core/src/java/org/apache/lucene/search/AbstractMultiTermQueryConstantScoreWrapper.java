@@ -27,6 +27,7 @@ import org.apache.lucene.index.TermStates;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.util.Accountable;
+import org.apache.lucene.util.AttributeSource;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.RamUsageEstimator;
 
@@ -43,9 +44,12 @@ abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQue
   static final int BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD = 16;
 
   protected final Q query;
+  protected final MultiTermQuery.RewriteMethod rewriteMethod;
 
-  protected AbstractMultiTermQueryConstantScoreWrapper(Q query) {
+  protected AbstractMultiTermQueryConstantScoreWrapper(
+      Q query, MultiTermQuery.RewriteMethod rewriteMethod) {
     this.query = query;
+    this.rewriteMethod = rewriteMethod;
   }
 
   @Override
@@ -125,13 +129,19 @@ abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQue
 
   protected abstract static class RewritingWeight extends ConstantScoreWeight {
     private final MultiTermQuery q;
+    private final MultiTermQuery.RewriteMethod rewriteMethod;
     private final ScoreMode scoreMode;
     private final IndexSearcher searcher;
 
     protected RewritingWeight(
-        MultiTermQuery q, float boost, ScoreMode scoreMode, IndexSearcher searcher) {
+        MultiTermQuery q,
+        MultiTermQuery.RewriteMethod rewriteMethod,
+        float boost,
+        ScoreMode scoreMode,
+        IndexSearcher searcher) {
       super(q, boost);
       this.q = q;
+      this.rewriteMethod = rewriteMethod;
       this.scoreMode = scoreMode;
       this.searcher = searcher;
     }
@@ -158,7 +168,7 @@ abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQue
       assert terms != null;
 
       final int fieldDocCount = terms.getDocCount();
-      final TermsEnum termsEnum = q.getTermsEnum(terms);
+      final TermsEnum termsEnum = rewriteMethod.getTermsEnum(q, terms, new AttributeSource());
       assert termsEnum != null;
 
       final List<TermAndState> collectedTerms = new ArrayList<>();

@@ -37,14 +37,14 @@ final class MultiTermQueryConstantScoreBlendedWrapper<Q extends MultiTermQuery>
   // postings lists under this threshold will always be "pre-processed" into a bitset
   private static final int POSTINGS_PRE_PROCESS_THRESHOLD = 512;
 
-  MultiTermQueryConstantScoreBlendedWrapper(Q query) {
-    super(query);
+  MultiTermQueryConstantScoreBlendedWrapper(Q query, MultiTermQuery.RewriteMethod rewriteMethod) {
+    super(query, rewriteMethod);
   }
 
   @Override
   public Weight createWeight(IndexSearcher searcher, ScoreMode scoreMode, float boost)
       throws IOException {
-    return new RewritingWeight(query, boost, scoreMode, searcher) {
+    return new RewritingWeight(query, rewriteMethod, boost, scoreMode, searcher) {
 
       @Override
       protected WeightOrDocIdSetIterator rewriteInner(

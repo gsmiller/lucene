@@ -86,7 +86,7 @@ public abstract class MultiTermQuery extends Query {
       new RewriteMethod() {
         @Override
         public Query rewrite(IndexSearcher indexSearcher, MultiTermQuery query) {
-          return new MultiTermQueryConstantScoreBlendedWrapper<>(query);
+          return new MultiTermQueryConstantScoreBlendedWrapper<>(query, this);
         }
       };
 
@@ -103,7 +103,7 @@ public abstract class MultiTermQuery extends Query {
       new RewriteMethod() {
         @Override
         public Query rewrite(IndexSearcher indexSearcher, MultiTermQuery query) {
-          return new MultiTermQueryConstantScoreWrapper<>(query);
+          return new MultiTermQueryConstantScoreWrapper<>(query, this);
         }
       };
 

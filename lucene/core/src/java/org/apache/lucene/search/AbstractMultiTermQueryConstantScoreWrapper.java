@@ -27,6 +27,7 @@ import org.apache.lucene.index.TermStates;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.util.Accountable;
+import org.apache.lucene.util.AttributeSource;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.RamUsageEstimator;
 
@@ -37,60 +38,66 @@ import org.apache.lucene.util.RamUsageEstimator;
  *
  * @lucene.internal
  */
-abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends Query
-    implements Accountable {
+abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQuery> extends MultiTermQuery.RewriteMethod {
   // mtq that matches 16 terms or less will be executed as a regular disjunction
   static final int BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD = 16;
 
-  protected final Q query;
-
-  protected AbstractMultiTermQueryConstantScoreWrapper(Q query) {
-    this.query = query;
+  @Override
+  public Query rewrite(IndexSearcher indexSearcher, MultiTermQuery query) throws IOException {
+    return new RewrittenQuery<>(query);
   }
 
-  @Override
-  public long ramBytesUsed() {
-    if (query instanceof Accountable) {
+  private static class RewrittenQuery<Q extends MultiTermQuery> extends Query implements Accountable {
+    protected final Q query;
+
+    protected RewrittenQuery(Q query) {
+      this.query = query;
+    }
+
+    @Override
+    public long ramBytesUsed() {
+      if (query instanceof Accountable) {
+        return RamUsageEstimator.NUM_BYTES_OBJECT_HEADER
+            + RamUsageEstimator.NUM_BYTES_OBJECT_REF
+            + ((Accountable) query).ramBytesUsed();
+      }
       return RamUsageEstimator.NUM_BYTES_OBJECT_HEADER
           + RamUsageEstimator.NUM_BYTES_OBJECT_REF
-          + ((Accountable) query).ramBytesUsed();
+          + RamUsageEstimator.QUERY_DEFAULT_RAM_BYTES_USED;
     }
-    return RamUsageEstimator.NUM_BYTES_OBJECT_HEADER
-        + RamUsageEstimator.NUM_BYTES_OBJECT_REF
-        + RamUsageEstimator.QUERY_DEFAULT_RAM_BYTES_USED;
-  }
 
-  @Override
-  public String toString(String field) {
-    // query.toString should be ok for the filter, too, if the query boost is 1.0f
-    return query.toString(field);
-  }
+    @Override
+    public String toString(String field) {
+      // query.toString should be ok for the filter, too, if the query boost is 1.0f
+      return query.toString(field);
+    }
 
-  @Override
-  public boolean equals(final Object other) {
-    return sameClassAs(other)
-        && query.equals(((AbstractMultiTermQueryConstantScoreWrapper<?>) other).query);
-  }
+    @Override
+    public boolean equals(final Object other) {
+      return sameClassAs(other)
+          && query.equals(((RewrittenQuery<?>) other).query);
+    }
 
-  @Override
-  public int hashCode() {
-    return 31 * classHash() + query.hashCode();
-  }
+    @Override
+    public int hashCode() {
+      return 31 * classHash() + query.hashCode();
+    }
 
-  /** Returns the encapsulated query */
-  public Q getQuery() {
-    return query;
-  }
+    /** Returns the encapsulated query */
+    public Q getQuery() {
+      return query;
+    }
 
-  /** Returns the field name for this query */
-  public String getField() {
-    return query.getField();
-  }
+    /** Returns the field name for this query */
+    public String getField() {
+      return query.getField();
+    }
 
-  @Override
-  public void visit(QueryVisitor visitor) {
-    if (visitor.acceptField(getField())) {
-      query.visit(visitor.getSubVisitor(BooleanClause.Occur.FILTER, this));
+    @Override
+    public void visit(QueryVisitor visitor) {
+      if (visitor.acceptField(getField())) {
+        query.visit(visitor.getSubVisitor(BooleanClause.Occur.FILTER, this));
+      }
     }
   }
 
@@ -123,7 +130,7 @@ abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQue
     }
   }
 
-  protected abstract static class RewritingWeight extends ConstantScoreWeight {
+  protected abstract class RewritingWeight extends ConstantScoreWeight {
     private final MultiTermQuery q;
     private final ScoreMode scoreMode;
     private final IndexSearcher searcher;
@@ -158,7 +165,7 @@ abstract class AbstractMultiTermQueryConstantScoreWrapper<Q extends MultiTermQue
       assert terms != null;
 
       final int fieldDocCount = terms.getDocCount();
-      final TermsEnum termsEnum = q.getTermsEnum(terms);
+      final TermsEnum termsEnum = getTermsEnum(q, terms, new AttributeSource());
       assert termsEnum != null;
 
       final List<TermAndState> collectedTerms = new ArrayList<>();

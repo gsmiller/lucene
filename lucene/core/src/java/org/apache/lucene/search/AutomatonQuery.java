@@ -115,12 +115,61 @@ public class AutomatonQuery extends MultiTermQuery implements Accountable {
       int determinizeWorkLimit,
       boolean isBinary,
       RewriteMethod rewriteMethod) {
+    this(term, automaton, determinizeWorkLimit, false, true, isBinary, rewriteMethod);
+  }
+
+  /**
+   * Create a new AutomatonQuery from an {@link Automaton}.
+   *
+   * @param term Term containing field and possibly some pattern structure. The term text is
+   *     ignored.
+   * @param automaton Automaton to run, terms that are accepted are considered a match.
+   * @param isFinite if true, this automaton is already finite
+   * @param isBinary if true, this automaton is already binary and will not go through the
+   *     UTF32ToUTF8 conversion
+   */
+  public AutomatonQuery(
+      final Term term,
+      Automaton automaton,
+      int determinizeWorkLimit,
+      boolean isFinite,
+      boolean simplify,
+      boolean isBinary) {
+    this(
+        term,
+        automaton,
+        determinizeWorkLimit,
+        isFinite,
+        simplify,
+        isBinary,
+        CONSTANT_SCORE_BLENDED_REWRITE);
+  }
+
+  /**
+   * Create a new AutomatonQuery from an {@link Automaton}.
+   *
+   * @param term Term containing field and possibly some pattern structure. The term text is
+   *     ignored.
+   * @param automaton Automaton to run, terms that are accepted are considered a match.
+   * @param isFinite if true, this automaton is already finite
+   * @param isBinary if true, this automaton is already binary and will not go through the
+   *     UTF32ToUTF8 conversion
+   * @param rewriteMethod the rewriteMethod to use to build the final query from the automaton
+   */
+  public AutomatonQuery(
+      final Term term,
+      Automaton automaton,
+      int determinizeWorkLimit,
+      boolean isFinite,
+      boolean simplify,
+      boolean isBinary,
+      RewriteMethod rewriteMethod) {
     super(term.field(), rewriteMethod);
     this.term = term;
     this.automaton = automaton;
     this.automatonIsBinary = isBinary;
-    // TODO: we could take isFinite too, to save a bit of CPU in CompiledAutomaton ctor?:
-    this.compiled = new CompiledAutomaton(automaton, null, true, determinizeWorkLimit, isBinary);
+    this.compiled =
+        new CompiledAutomaton(automaton, isFinite, simplify, determinizeWorkLimit, isBinary);
 
     this.ramBytesUsed =
         BASE_RAM_BYTES + term.ramBytesUsed() + automaton.ramBytesUsed() + compiled.ramBytesUsed();

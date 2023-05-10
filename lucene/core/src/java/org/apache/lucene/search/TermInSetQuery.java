@@ -16,30 +16,20 @@
  */
 package org.apache.lucene.search;
 
+import org.apache.lucene.index.Term;
+import org.apache.lucene.util.ArrayUtil;
+import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.BytesRefBuilder;
+import org.apache.lucene.util.automaton.Automaton;
+import org.apache.lucene.util.automaton.BinaryAutomatonBuilder;
+import org.apache.lucene.util.automaton.Operations;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.SortedSet;
-import org.apache.lucene.index.FilteredTermsEnum;
-import org.apache.lucene.index.PrefixCodedTerms;
-import org.apache.lucene.index.PrefixCodedTerms.TermIterator;
-import org.apache.lucene.index.Term;
-import org.apache.lucene.index.Terms;
-import org.apache.lucene.index.TermsEnum;
-import org.apache.lucene.util.Accountable;
-import org.apache.lucene.util.ArrayUtil;
-import org.apache.lucene.util.AttributeSource;
-import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.BytesRefBuilder;
-import org.apache.lucene.util.RamUsageEstimator;
-import org.apache.lucene.util.automaton.Automata;
-import org.apache.lucene.util.automaton.Automaton;
-import org.apache.lucene.util.automaton.ByteRunAutomaton;
-import org.apache.lucene.util.automaton.CompiledAutomaton;
-import org.apache.lucene.util.automaton.Operations;
 
 /**
  * Specialization for a disjunction over many terms that, by default, behaves like a {@link
@@ -72,29 +62,25 @@ import org.apache.lucene.util.automaton.Operations;
  *
  * <p>NOTE: This query produces scores that are equal to its boost
  */
-public class TermInSetQuery extends MultiTermQuery implements Accountable {
-
-  private static final long BASE_RAM_BYTES_USED =
-      RamUsageEstimator.shallowSizeOfInstance(TermInSetQuery.class);
-
+public class TermInSetQuery extends AutomatonQuery {
   private final String field;
-  private final PrefixCodedTerms termData;
-  private final int termDataHashCode; // cached hashcode of termData
+  private final int termCount;
 
   public TermInSetQuery(String field, Collection<BytesRef> terms) {
-    this(field, packTerms(field, terms));
+    super(new Term(field), toAutomaton(terms));
+    this.field = field;
+    this.termCount = terms.size();
   }
 
   public TermInSetQuery(String field, BytesRef... terms) {
-    this(field, packTerms(field, Arrays.asList(terms)));
+    this(field, Arrays.asList(terms));
   }
 
   /** Creates a new {@link TermInSetQuery} from the given collection of terms. */
   public TermInSetQuery(RewriteMethod rewriteMethod, String field, Collection<BytesRef> terms) {
-    super(field, rewriteMethod);
+    super(new Term(field), toAutomaton(terms), Operations.DEFAULT_DETERMINIZE_WORK_LIMIT, true, rewriteMethod);
     this.field = field;
-    this.termData = packTerms(field, terms);
-    termDataHashCode = termData.hashCode();
+    this.termCount = terms.size();
   }
 
   /** Creates a new {@link TermInSetQuery} from the given array of terms. */
@@ -102,14 +88,7 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
     this(rewriteMethod, field, Arrays.asList(terms));
   }
 
-  private TermInSetQuery(String field, PrefixCodedTerms termData) {
-    super(field, MultiTermQuery.CONSTANT_SCORE_BLENDED_REWRITE);
-    this.field = field;
-    this.termData = termData;
-    termDataHashCode = termData.hashCode();
-  }
-
-  private static PrefixCodedTerms packTerms(String field, Collection<BytesRef> terms) {
+  private static Automaton toAutomaton(Collection<BytesRef> terms) {
     BytesRef[] sortedTerms = terms.toArray(new BytesRef[0]);
     // already sorted if we are a SortedSet with natural order
     boolean sorted =
@@ -117,7 +96,7 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
     if (sorted == false) {
       ArrayUtil.timSort(sortedTerms);
     }
-    PrefixCodedTerms.Builder builder = new PrefixCodedTerms.Builder();
+    List<BytesRef> sortedAndDeduped = new ArrayList<>(terms.size());
     BytesRefBuilder previous = null;
     for (BytesRef term : sortedTerms) {
       if (previous == null) {
@@ -125,143 +104,15 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
       } else if (previous.get().equals(term)) {
         continue; // deduplicate
       }
-      builder.add(field, term);
+      sortedAndDeduped.add(term);
       previous.copyBytes(term);
     }
 
-    return builder.finish();
+    return BinaryAutomatonBuilder.build(sortedAndDeduped);
   }
 
   @Override
   public long getTermsCount() throws IOException {
-    return termData.size();
-  }
-
-  @Override
-  public void visit(QueryVisitor visitor) {
-    if (visitor.acceptField(field) == false) {
-      return;
-    }
-    if (termData.size() == 1) {
-      visitor.consumeTerms(this, new Term(field, termData.iterator().next()));
-    }
-    if (termData.size() > 1) {
-      visitor.consumeTermsMatching(this, field, this::asByteRunAutomaton);
-    }
-  }
-
-  private ByteRunAutomaton asByteRunAutomaton() {
-    TermIterator iterator = termData.iterator();
-    List<Automaton> automata = new ArrayList<>();
-    for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
-      automata.add(Automata.makeBinary(term));
-    }
-    return new CompiledAutomaton(Operations.union(automata)).runAutomaton;
-  }
-
-  @Override
-  public boolean equals(Object other) {
-    return sameClassAs(other) && equalsTo(getClass().cast(other));
-  }
-
-  private boolean equalsTo(TermInSetQuery other) {
-    // no need to check 'field' explicitly since it is encoded in 'termData'
-    // termData might be heavy to compare so check the hash code first
-    return termDataHashCode == other.termDataHashCode && termData.equals(other.termData);
-  }
-
-  @Override
-  public int hashCode() {
-    return 31 * classHash() + termDataHashCode;
-  }
-
-  /**
-   * Returns the terms wrapped in a PrefixCodedTerms.
-   *
-   * @deprecated the encoded terms will no longer be exposed in a future major version; this is an
-   *     implementation detail that could change at some point and shouldn't be relied on directly
-   */
-  @Deprecated
-  public PrefixCodedTerms getTermData() {
-    return termData;
-  }
-
-  @Override
-  public String toString(String defaultField) {
-    StringBuilder builder = new StringBuilder();
-    builder.append(field);
-    builder.append(":(");
-
-    TermIterator iterator = termData.iterator();
-    boolean first = true;
-    for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
-      if (!first) {
-        builder.append(' ');
-      }
-      first = false;
-      builder.append(Term.toString(term));
-    }
-    builder.append(')');
-
-    return builder.toString();
-  }
-
-  @Override
-  public long ramBytesUsed() {
-    return BASE_RAM_BYTES_USED + termData.ramBytesUsed();
-  }
-
-  @Override
-  public Collection<Accountable> getChildResources() {
-    return Collections.emptyList();
-  }
-
-  @Override
-  protected TermsEnum getTermsEnum(Terms terms, AttributeSource atts) throws IOException {
-    return new SetEnum(terms.iterator());
-  }
-
-  /**
-   * Like a baby {@link org.apache.lucene.index.AutomatonTermsEnum}, ping-pong intersects the terms
-   * dict against our encoded query terms.
-   */
-  private class SetEnum extends FilteredTermsEnum {
-    private final TermIterator iterator;
-    private BytesRef seekTerm;
-
-    SetEnum(TermsEnum termsEnum) {
-      super(termsEnum);
-      iterator = termData.iterator();
-      seekTerm = iterator.next();
-    }
-
-    @Override
-    protected AcceptStatus accept(BytesRef term) throws IOException {
-      // next() our iterator until it is >= the incoming term
-      // if it matches exactly, it's a hit, otherwise it's a miss
-      int cmp = 0;
-      while (seekTerm != null && (cmp = seekTerm.compareTo(term)) < 0) {
-        seekTerm = iterator.next();
-      }
-      if (seekTerm == null) {
-        return AcceptStatus.END;
-      } else if (cmp == 0) {
-        return AcceptStatus.YES_AND_SEEK;
-      } else {
-        return AcceptStatus.NO_AND_SEEK;
-      }
-    }
-
-    @Override
-    protected BytesRef nextSeekTerm(BytesRef currentTerm) throws IOException {
-      // next() our iterator until it is > the currentTerm, must always make progress.
-      if (currentTerm == null) {
-        return seekTerm;
-      }
-      while (seekTerm != null && seekTerm.compareTo(currentTerm) <= 0) {
-        seekTerm = iterator.next();
-      }
-      return seekTerm;
-    }
+    return termCount;
   }
 }

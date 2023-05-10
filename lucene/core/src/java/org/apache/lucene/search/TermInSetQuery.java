@@ -39,6 +39,7 @@ import org.apache.lucene.util.automaton.Automata;
 import org.apache.lucene.util.automaton.Automaton;
 import org.apache.lucene.util.automaton.ByteRunAutomaton;
 import org.apache.lucene.util.automaton.CompiledAutomaton;
+import org.apache.lucene.util.automaton.DaciukMihovAutomatonBuilder;
 import org.apache.lucene.util.automaton.Operations;
 
 /**
@@ -211,7 +212,20 @@ public class TermInSetQuery extends MultiTermQuery implements Accountable {
 
   @Override
   protected TermsEnum getTermsEnum(Terms terms, AttributeSource atts) throws IOException {
-    return new SetEnum(terms.iterator());
+    List<BytesRef> queryTerms = new ArrayList<>((int) getTermsCount());
+    TermIterator it = termData.iterator();
+    BytesRef term;
+    BytesRef first = null;
+    while ((term = it.next()) != null) {
+      if (first == null) {
+        first = term;
+      }
+      queryTerms.add(term);
+    }
+    Automaton automaton = DaciukMihovAutomatonBuilder.build(queryTerms);
+    CompiledAutomaton compiledAutomaton = new CompiledAutomaton(automaton, false, false, false);
+    return compiledAutomaton.getTermsEnum(terms);
+//    return terms.intersect(compiledAutomaton, first);
   }
 
   /**

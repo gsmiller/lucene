@@ -16,12 +16,13 @@
  */
 package org.apache.lucene.search;
 
+import org.apache.lucene.index.PrefixCodedTerms;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.automaton.Automaton;
-import org.apache.lucene.util.automaton.DaciukMihovAutomatonBuilder;
+import org.apache.lucene.util.automaton.BinaryAutomatonBuilder;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -77,7 +78,7 @@ public class TermInSetQuery extends AutomatonQuery {
 
   /** Creates a new {@link TermInSetQuery} from the given collection of terms. */
   public TermInSetQuery(RewriteMethod rewriteMethod, String field, Collection<BytesRef> terms) {
-    super(new Term(field), toAutomaton(terms), false, rewriteMethod);
+    super(new Term(field), toAutomaton(terms), true, rewriteMethod);
     this.field = field;
     this.termCount = terms.size();
   }
@@ -107,7 +108,7 @@ public class TermInSetQuery extends AutomatonQuery {
       previous.copyBytes(term);
     }
 
-    return DaciukMihovAutomatonBuilder.build(sortedAndDeduped);
+    return BinaryAutomatonBuilder.build(sortedAndDeduped);
   }
 
   @Override

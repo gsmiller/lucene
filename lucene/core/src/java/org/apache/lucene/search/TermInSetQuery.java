@@ -67,7 +67,7 @@ public class TermInSetQuery extends AutomatonQuery {
   private final int termCount;
 
   public TermInSetQuery(String field, Collection<BytesRef> terms) {
-    super(new Term(field), toAutomaton(terms), true);
+    super(new Term(field), toAutomaton(terms), Operations.DEFAULT_DETERMINIZE_WORK_LIMIT, true);
     this.field = field;
     this.termCount = terms.size();
   }

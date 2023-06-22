@@ -37,14 +37,19 @@ import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
+import org.apache.lucene.index.TermState;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.store.ChecksumIndexInput;
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.IndexOutput;
+import org.apache.lucene.util.AttributeSource;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.IOUtils;
+import org.apache.lucene.util.IntsRef;
 import org.apache.lucene.util.automaton.CompiledAutomaton;
+import org.apache.lucene.util.automaton.FiniteStringsIterator;
 
 /**
  * A {@link PostingsFormat} useful for low doc-frequency fields such as primary keys. Bloom filters
@@ -224,7 +229,96 @@ public final class BloomFilteringPostingsFormat extends PostingsFormat {
       @Override
       public TermsEnum intersect(CompiledAutomaton compiled, final BytesRef startTerm)
           throws IOException {
-        return delegateTerms.intersect(compiled, startTerm);
+        if (compiled.finite == false) {
+          return delegateTerms.intersect(compiled, startTerm);
+        } else {
+          //          return delegateTerms.intersect(compiled, startTerm);
+
+          final TermsEnum tEnum = iterator();
+
+          final FiniteStringsIterator it = new FiniteStringsIterator(compiled.automaton);
+          final BytesRefBuilder term = new BytesRefBuilder();
+
+          return new TermsEnum() {
+            @Override
+            public BytesRef next() throws IOException {
+              IntsRef next;
+              while ((next = it.next()) != null) {
+                term.clear();
+                term.grow(next.length);
+                for (int i = 0; i < next.length; i++) {
+                  assert next.ints[next.offset + i] <= 0xff;
+                  term.append((byte) (next.ints[next.offset + i] & 0xff));
+                }
+                BytesRef t = term.toBytesRef();
+                if (tEnum.seekExact(t)) {
+                  return t;
+                }
+              }
+              return null;
+            }
+
+            @Override
+            public AttributeSource attributes() {
+              return tEnum.attributes();
+            }
+
+            @Override
+            public BytesRef term() throws IOException {
+              return tEnum.term();
+            }
+
+            @Override
+            public long ord() throws IOException {
+              return tEnum.ord();
+            }
+
+            @Override
+            public int docFreq() throws IOException {
+              return tEnum.docFreq();
+            }
+
+            @Override
+            public long totalTermFreq() throws IOException {
+              return tEnum.totalTermFreq();
+            }
+
+            @Override
+            public PostingsEnum postings(PostingsEnum reuse, int flags) throws IOException {
+              return tEnum.postings(reuse, flags);
+            }
+
+            @Override
+            public ImpactsEnum impacts(int flags) throws IOException {
+              return tEnum.impacts(flags);
+            }
+
+            @Override
+            public TermState termState() throws IOException {
+              return tEnum.termState();
+            }
+
+            @Override
+            public boolean seekExact(BytesRef text) throws IOException {
+              throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public SeekStatus seekCeil(BytesRef text) throws IOException {
+              throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public void seekExact(long ord) throws IOException {
+              throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public void seekExact(BytesRef term, TermState state) throws IOException {
+              throw new UnsupportedOperationException();
+            }
+          };
+        }
       }
 
       @Override

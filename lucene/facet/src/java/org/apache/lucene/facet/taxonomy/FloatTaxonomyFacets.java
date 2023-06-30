@@ -52,17 +52,6 @@ public abstract class FloatTaxonomyFacets extends TaxonomyFacets {
   /** Per-ordinal value. */
   protected float[] values;
 
-  /**
-   * Constructor that defaults the aggregation function to {@link
-   * AssociationAggregationFunction#SUM}.
-   */
-  protected FloatTaxonomyFacets(
-      String indexFieldName, TaxonomyReader taxoReader, FacetsConfig config) throws IOException {
-    super(indexFieldName, taxoReader, config);
-    this.aggregationFunction = AssociationAggregationFunction.SUM;
-    values = new float[taxoReader.getSize()];
-  }
-
   /** Constructor that uses the provided aggregation function. */
   protected FloatTaxonomyFacets(
       String indexFieldName,

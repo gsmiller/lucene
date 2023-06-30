@@ -66,26 +66,7 @@ public abstract class IntTaxonomyFacets extends TaxonomyFacets {
   protected IntIntHashMap sparseValues;
 
   /** Have value counters been initialized. */
-  boolean initialized;
-
-  /**
-   * Constructor that defaults the aggregation function to {@link
-   * AssociationAggregationFunction#SUM}.
-   */
-  protected IntTaxonomyFacets(
-      String indexFieldName, TaxonomyReader taxoReader, FacetsConfig config, FacetsCollector fc)
-      throws IOException {
-    super(indexFieldName, taxoReader, config);
-    this.aggregationFunction = AssociationAggregationFunction.SUM;
-
-    if (useHashTable(fc, taxoReader)) {
-      sparseValues = new IntIntHashMap();
-      values = null;
-    } else {
-      sparseValues = null;
-      values = new int[taxoReader.getSize()];
-    }
-  }
+  protected boolean initialized;
 
   /** Constructor that uses the provided aggregation function. */
   protected IntTaxonomyFacets(

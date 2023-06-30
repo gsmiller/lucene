@@ -65,7 +65,7 @@ public abstract class TaxonomyFacets extends Facets {
   protected final FacetsConfig config;
 
   /** {@code FacetsCollector} provided to the constructor. */
-  final FacetsCollector fc;
+  protected final FacetsCollector fc;
 
   /** Maps parent ordinal to its child, or -1 if the parent is childless. */
   private int[] children;

@@ -140,6 +140,9 @@ Optimizations
 
 * GITHUB#12385: Restore parallel knn query rewrite across segments rather than slices (Luca Cavanna)
 
+* GITHUB#12408: Lazy initialization improvements for Facets implementations when there are segments with no hits
+  to count. (Greg Miller)
+
 Bug Fixes
 ---------------------
 

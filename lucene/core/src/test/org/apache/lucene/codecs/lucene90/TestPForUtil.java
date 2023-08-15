@@ -39,19 +39,22 @@ public class TestPForUtil extends LuceneTestCase {
     final long endPointer = encodeTestData(iterations, values, d);
 
     IndexInput in = d.openInput("test.bin", IOContext.READONCE);
-    final PForUtil pforUtil = new PForUtil();
+    final PForUtil pforUtil = new PForUtil(new ForUtil());
     for (int i = 0; i < iterations; ++i) {
       if (random().nextInt(5) == 0) {
         pforUtil.skip(in);
         continue;
       }
-      final int[] restored = new int[ForUtil.BLOCK_SIZE];
+      final long[] restored = new long[ForUtil.BLOCK_SIZE];
       pforUtil.decode(in, restored);
-
+      int[] ints = new int[ForUtil.BLOCK_SIZE];
+      for (int j = 0; j < ForUtil.BLOCK_SIZE; ++j) {
+        ints[j] = Math.toIntExact(restored[j]);
+      }
       assertArrayEquals(
-          Arrays.toString(restored),
+          Arrays.toString(ints),
           ArrayUtil.copyOfSubArray(values, i * ForUtil.BLOCK_SIZE, (i + 1) * ForUtil.BLOCK_SIZE),
-          restored);
+          ints);
     }
     assertEquals(endPointer, in.getFilePointer());
     in.close();
@@ -69,7 +72,7 @@ public class TestPForUtil extends LuceneTestCase {
     final long endPointer = encodeTestData(iterations, values, d);
 
     IndexInput in = d.openInput("test.bin", IOContext.READONCE);
-    final PForUtil pForUtil = new PForUtil();
+    final PForUtil pForUtil = new PForUtil(new ForUtil());
     for (int i = 0; i < iterations; ++i) {
       if (random().nextInt(5) == 0) {
         pForUtil.skip(in);
@@ -120,10 +123,10 @@ public class TestPForUtil extends LuceneTestCase {
 
   private long encodeTestData(int iterations, int[] values, Directory d) throws IOException {
     IndexOutput out = d.createOutput("test.bin", IOContext.DEFAULT);
-    final PForUtil pforUtil = new PForUtil();
+    final PForUtil pforUtil = new PForUtil(new ForUtil());
 
     for (int i = 0; i < iterations; ++i) {
-      int[] source = new int[ForUtil.BLOCK_SIZE];
+      long[] source = new long[ForUtil.BLOCK_SIZE];
       for (int j = 0; j < ForUtil.BLOCK_SIZE; ++j) {
         source[j] = values[i * ForUtil.BLOCK_SIZE + j];
       }

@@ -161,14 +161,14 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     }
   }
 
-  static void prefixSum(long[] buffer, int count, long base) {
+  static void prefixSum(int[] buffer, int count, int base) {
     buffer[0] += base;
     for (int i = 1; i < count; ++i) {
       buffer[i] += buffer[i - 1];
     }
   }
 
-  static int findFirstGreater(long[] buffer, int target, int from) {
+  static int findFirstGreater(int[] buffer, int target, int from) {
     for (int i = from; i < BLOCK_SIZE; ++i) {
       if (buffer[i] >= target) {
         return i;
@@ -306,7 +306,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
 
   final class BlockDocsEnum extends PostingsEnum {
 
-    final PForUtil pforUtil = new PForUtil();
+    final PForUtil pforUtil = new PForUtil(new ForUtil());
 
     private final int[] docBuffer = new int[BLOCK_SIZE + 1];
     private final int[] freqBuffer = new int[BLOCK_SIZE];
@@ -328,7 +328,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     private int totalTermFreq; // sum of freqBuffer in this posting list (or docFreq when omitted)
     private int blockUpto; // number of docs in or before the current block
     private int doc; // doc we last read
-    private long accum; // accumulator for doc deltas
+    private int accum; // accumulator for doc deltas
 
     // Where this term's postings start in the .doc file:
     private long docTermStartFP;
@@ -452,7 +452,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       assert left >= 0;
 
       if (left >= BLOCK_SIZE) {
-        pforUtil.postDecode(docIn, docBuffer);
+        pforUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
 
         if (indexHasFreq) {
           if (needsFreq) {
@@ -470,9 +470,11 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       } else {
         // Read vInts:
         readVIntBlock(docIn, docBuffer, freqBuffer, left, indexHasFreq);
+        prefixSum(docBuffer, left, accum);
         docBuffer[left] = NO_MORE_DOCS;
         blockUpto += left;
       }
+      accum = docBuffer[BLOCK_SIZE - 1];
       docBufferUpto = 0;
       assert docBuffer[BLOCK_SIZE] == NO_MORE_DOCS;
     }
@@ -485,10 +487,6 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       }
 
       doc = docBuffer[docBufferUpto];
-      if (doc != NO_MORE_DOCS) {
-        doc += accum;
-        accum = doc;
-      }
       docBufferUpto++;
       return doc;
     }
@@ -542,13 +540,9 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
 
       // Now scan... this is an inlined/pared down version
       // of nextDoc():
-      long doc = 0;
+      int doc;
       while (true) {
         doc = docBuffer[docBufferUpto];
-        if (doc != NO_MORE_DOCS) {
-          doc += accum;
-          accum = doc;
-        }
 
         if (doc >= target) {
           break;
@@ -557,7 +551,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       }
 
       docBufferUpto++;
-      return this.doc = (int) doc;
+      return this.doc = doc;
     }
 
     @Override
@@ -569,7 +563,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
   // Also handles payloads + offsets
   final class EverythingEnum extends PostingsEnum {
 
-    final PForUtil pforUtil = new PForUtil();
+    final PForUtil pforUtil = new PForUtil(new ForUtil());
 
     private final int[] docBuffer = new int[BLOCK_SIZE + 1];
     private final int[] freqBuffer = new int[BLOCK_SIZE + 1];
@@ -607,7 +601,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     private int totalTermFreq; // number of positions in this posting list
     private int blockUpto; // number of docs in or before the current block
     private int doc; // doc we last read
-    private long accum; // accumulator for doc deltas
+    private int accum; // accumulator for doc deltas
     private int freq; // freq we last read
     private int position; // current position
 
@@ -757,7 +751,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       assert left >= 0;
 
       if (left >= BLOCK_SIZE) {
-        pforUtil.postDecode(docIn, docBuffer);
+        pforUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
         pforUtil.decode(docIn, freqBuffer);
         blockUpto += BLOCK_SIZE;
       } else if (docFreq == 1) {
@@ -767,9 +761,11 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
         blockUpto++;
       } else {
         readVIntBlock(docIn, docBuffer, freqBuffer, left, true);
+        prefixSum(docBuffer, left, accum);
         docBuffer[left] = NO_MORE_DOCS;
         blockUpto += left;
       }
+      accum = docBuffer[BLOCK_SIZE - 1];
       docBufferUpto = 0;
       assert docBuffer[BLOCK_SIZE] == NO_MORE_DOCS;
     }
@@ -852,10 +848,6 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       }
 
       doc = docBuffer[docBufferUpto];
-      if (doc != NO_MORE_DOCS) {
-        doc += accum;
-        accum = doc;
-      }
       freq = freqBuffer[docBufferUpto];
       posPendingCount += freq;
       docBufferUpto++;
@@ -908,13 +900,9 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       }
 
       // Now scan:
-      long doc;
+      int doc;
       while (true) {
         doc = docBuffer[docBufferUpto];
-        if (doc != NO_MORE_DOCS) {
-          doc += accum;
-          accum = doc;
-        }
         freq = freqBuffer[docBufferUpto];
         posPendingCount += freq;
         docBufferUpto++;
@@ -926,7 +914,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
 
       position = 0;
       lastStartOffset = 0;
-      return this.doc = (int) doc;
+      return this.doc = doc;
     }
 
     // TODO: in theory we could avoid loading frq block
@@ -1059,7 +1047,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
 
   final class BlockImpactsDocsEnum extends ImpactsEnum {
 
-    final PForUtil pforUtil = new PForUtil();
+    final PForUtil pforUtil = new PForUtil(new ForUtil());
 
     private final int[] docBuffer = new int[BLOCK_SIZE + 1];
     private final int[] freqBuffer = new int[BLOCK_SIZE];
@@ -1075,7 +1063,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     private final int docFreq; // number of docs in this posting list
     private int blockUpto; // number of documents in or before the current block
     private int doc; // doc we last read
-    private long accum; // accumulator for doc deltas
+    private int accum; // accumulator for doc deltas
 
     private int nextSkipDoc = -1;
 
@@ -1153,16 +1141,18 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       assert left >= 0;
 
       if (left >= BLOCK_SIZE) {
-        pforUtil.postDecode(docIn, docBuffer);
+        pforUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
         if (indexHasFreqs) {
           pforUtil.decode(docIn, freqBuffer);
         }
         blockUpto += BLOCK_SIZE;
       } else {
         readVIntBlock(docIn, docBuffer, freqBuffer, left, indexHasFreqs);
+        prefixSum(docBuffer, left, accum);
         docBuffer[left] = NO_MORE_DOCS;
         blockUpto += left;
       }
+      accum = docBuffer[BLOCK_SIZE - 1];
       docBufferUpto = 0;
       assert docBuffer[BLOCK_SIZE] == NO_MORE_DOCS;
     }
@@ -1216,16 +1206,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
         refillDocs();
       }
 
-      int next;
-      for (next = docBufferUpto; next < BLOCK_SIZE; ++next) {
-        this.doc = (int) (docBuffer[next] + accum);
-        accum += docBuffer[next];
-        if (this.doc >= target) {
-          docBufferUpto = next + 1;
-          return doc;
-        }
-      }
-
+      int next = findFirstGreater(docBuffer, target, docBufferUpto);
       this.doc = docBuffer[next];
       docBufferUpto = next + 1;
       return doc;
@@ -1259,7 +1240,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
 
   final class BlockImpactsPostingsEnum extends ImpactsEnum {
 
-    final PForUtil pforUtil = new PForUtil();
+    final PForUtil pforUtil = new PForUtil(new ForUtil());
 
     private final int[] docBuffer = new int[BLOCK_SIZE];
     private final int[] freqBuffer = new int[BLOCK_SIZE];
@@ -1280,7 +1261,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     private final long totalTermFreq; // number of positions in this posting list
     private int docUpto; // how many docs we've read
     private int doc; // doc we last read
-    private long accum; // accumulator for doc deltas
+    private int accum; // accumulator for doc deltas
     private int freq; // freq we last read
     private int position; // current position
 
@@ -1371,12 +1352,14 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       assert left >= 0;
 
       if (left >= BLOCK_SIZE) {
-        pforUtil.postDecode(docIn, docBuffer);
+        pforUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
         pforUtil.decode(docIn, freqBuffer);
       } else {
         readVIntBlock(docIn, docBuffer, freqBuffer, left, true);
+        prefixSum(docBuffer, left, accum);
         docBuffer[left] = NO_MORE_DOCS;
       }
+      accum = docBuffer[BLOCK_SIZE - 1];
       docBufferUpto = 0;
     }
 
@@ -1458,22 +1441,20 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
         }
         refillDocs();
       }
-      int next = docBufferUpto;
-      for (; next < BLOCK_SIZE; ++next) {
-        this.doc = (int) (docBuffer[next] + accum);
-        accum = doc;
-        if (this.doc >= target) {
-          this.freq = freqBuffer[next];
-          for (int i = docBufferUpto; i <= next; ++i) {
-            posPendingCount += freqBuffer[i];
-          }
-          docUpto += next - docBufferUpto + 1;
-          docBufferUpto = next + 1;
-          position = 0;
-          return doc;
-        }
+
+      int next = findFirstGreater(docBuffer, target, docBufferUpto);
+      if (next == BLOCK_SIZE) {
+        return doc = NO_MORE_DOCS;
       }
-      return doc = NO_MORE_DOCS;
+      this.doc = docBuffer[next];
+      this.freq = freqBuffer[next];
+      for (int i = docBufferUpto; i <= next; ++i) {
+        posPendingCount += freqBuffer[i];
+      }
+      docUpto += next - docBufferUpto + 1;
+      docBufferUpto = next + 1;
+      position = 0;
+      return doc;
     }
 
     // TODO: in theory we could avoid loading frq block
@@ -1551,7 +1532,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
 
   final class BlockImpactsEverythingEnum extends ImpactsEnum {
 
-    final PForUtil pforUtil = new PForUtil();
+    final PForUtil pforUtil = new PForUtil(new ForUtil());
 
     private final int[] docBuffer = new int[BLOCK_SIZE];
     private final int[] freqBuffer = new int[BLOCK_SIZE];
@@ -1589,7 +1570,7 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
     private int docUpto; // how many docs we've read
     private int posDocUpTo; // for how many docs we've read positions, offsets, and payloads
     private int doc; // doc we last read
-    private long accum; // accumulator for doc deltas
+    private int accum; // accumulator for doc deltas
     private int position; // current position
 
     // how many positions "behind" we are; nextPosition must
@@ -1760,15 +1741,17 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
       assert left >= 0;
 
       if (left >= BLOCK_SIZE) {
-        pforUtil.postDecode(docIn, docBuffer);
+        pforUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
         if (indexHasFreq) {
           isFreqsRead =
               false; // freq block will be loaded lazily when necessary, we don't load it here
         }
       } else {
         readVIntBlock(docIn, docBuffer, freqBuffer, left, indexHasFreq);
+        prefixSum(docBuffer, left, accum);
         docBuffer[left] = NO_MORE_DOCS;
       }
+      accum = docBuffer[BLOCK_SIZE - 1];
       docBufferUpto = 0;
     }
 
@@ -1904,10 +1887,6 @@ public final class Lucene90PostingsReader extends PostingsReaderBase {
         doc = docBuffer[docBufferUpto];
         docBufferUpto++;
         docUpto++;
-        if (doc != NO_MORE_DOCS) {
-          doc += accum;
-          accum = doc;
-        }
 
         if (doc >= target) {
           break;

@@ -110,7 +110,7 @@ public final class Lucene90PostingsWriter extends PushPostingsWriterBase {
     try {
       CodecUtil.writeIndexHeader(
           docOut, DOC_CODEC, VERSION_CURRENT, state.segmentInfo.getId(), state.segmentSuffix);
-      pforUtil = new PForUtil();
+      pforUtil = new PForUtil(new ForUtil());
       if (state.fieldInfos.hasProx()) {
         posDeltaBuffer = new int[BLOCK_SIZE];
         String posFileName =

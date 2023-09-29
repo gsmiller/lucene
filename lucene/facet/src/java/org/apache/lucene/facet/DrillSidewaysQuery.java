@@ -34,6 +34,7 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.QueryVisitor;
 import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.Scorer;
+import org.apache.lucene.search.ScorerSupplier;
 import org.apache.lucene.search.Weight;
 
 /** Only purpose is to punch through and return a DrillSidewaysScorer */
@@ -171,7 +172,12 @@ class DrillSidewaysQuery extends Query {
 
       @Override
       public BulkScorer bulkScorer(LeafReaderContext context) throws IOException {
-        Scorer baseScorer = baseWeight.scorer(context);
+        ScorerSupplier baseScorerSupplier = baseWeight.scorerSupplier(context);
+        if (baseScorerSupplier == null) {
+          return null;
+        }
+        long baseCost = baseScorerSupplier.cost();
+        Scorer baseScorer = baseScorerSupplier.get(Long.MAX_VALUE);
 
         int drillDownCount = drillDowns.length;
 
@@ -183,13 +189,15 @@ class DrillSidewaysQuery extends Query {
 
         int nullCount = 0;
         for (int dim = 0; dim < dims.length; dim++) {
-          Scorer scorer = drillDowns[dim].scorer(context);
-          if (scorer == null) {
+          ScorerSupplier scorerSupplier = drillDowns[dim].scorerSupplier(context);
+          Scorer scorer;
+          if (scorerSupplier == null) {
             nullCount++;
             scorer =
                 new ConstantScoreScorer(drillDowns[dim], 0f, scoreMode, DocIdSetIterator.empty());
+          } else {
+            scorer = scorerSupplier.get(baseCost);
           }
-
           FacetsCollector sidewaysCollector = drillSidewaysCollectorManagers[dim].newCollector();
           sidewaysCollectors[dim] = sidewaysCollector;
 
@@ -214,10 +222,6 @@ class DrillSidewaysQuery extends Query {
                 return Long.compare(o1.approximation.cost(), o2.approximation.cost());
               }
             });
-
-        if (baseScorer == null) {
-          return null;
-        }
 
         FacetsCollector drillDownCollector;
         if (drillDownCollectorManager != null) {

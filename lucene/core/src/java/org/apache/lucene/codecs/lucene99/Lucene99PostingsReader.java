@@ -458,8 +458,9 @@ public final class Lucene99PostingsReader extends PostingsReaderBase {
       assert left >= 0;
 
       if (left >= BLOCK_SIZE) {
-        forDeltaUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
-
+//        forDeltaUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+        GroupVIntReader.readValues(docIn, docBuffer, BLOCK_SIZE);
+        prefixSum(docBuffer, BLOCK_SIZE, accum);
         if (indexHasFreq) {
           if (needsFreq) {
             isFreqsRead = false;
@@ -759,7 +760,9 @@ public final class Lucene99PostingsReader extends PostingsReaderBase {
       assert left >= 0;
 
       if (left >= BLOCK_SIZE) {
-        forDeltaUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+//        forDeltaUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+        GroupVIntReader.readValues(docIn, docBuffer, BLOCK_SIZE);
+        prefixSum(docBuffer, BLOCK_SIZE, accum);
         pforUtil.decode(docIn, freqBuffer);
         blockUpto += BLOCK_SIZE;
       } else if (docFreq == 1) {
@@ -1149,7 +1152,9 @@ public final class Lucene99PostingsReader extends PostingsReaderBase {
       assert left >= 0;
 
       if (left >= BLOCK_SIZE) {
-        forDeltaUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+//        forDeltaUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+        GroupVIntReader.readValues(docIn, docBuffer, BLOCK_SIZE);
+        prefixSum(docBuffer, BLOCK_SIZE, accum);
         if (indexHasFreqs) {
           isFreqsRead = false;
         }
@@ -1360,7 +1365,9 @@ public final class Lucene99PostingsReader extends PostingsReaderBase {
       assert left >= 0;
 
       if (left >= BLOCK_SIZE) {
-        forDeltaUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+//        forDeltaUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+        GroupVIntReader.readValues(docIn, docBuffer, BLOCK_SIZE);
+        prefixSum(docBuffer, BLOCK_SIZE, accum);
         pforUtil.decode(docIn, freqBuffer);
       } else {
         readVIntBlock(docIn, docBuffer, freqBuffer, left, true, true);
@@ -1747,7 +1754,9 @@ public final class Lucene99PostingsReader extends PostingsReaderBase {
       assert left >= 0;
 
       if (left >= BLOCK_SIZE) {
-        forDeltaUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+//        forDeltaUtil.decodeAndPrefixSum(docIn, accum, docBuffer);
+        GroupVIntReader.readValues(docIn, docBuffer, BLOCK_SIZE);
+        prefixSum(docBuffer, BLOCK_SIZE, accum);
         if (indexHasFreq) {
           isFreqsRead =
               false; // freq block will be loaded lazily when necessary, we don't load it here

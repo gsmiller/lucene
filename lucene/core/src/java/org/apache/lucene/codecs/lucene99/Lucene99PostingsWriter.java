@@ -245,7 +245,8 @@ public final class Lucene99PostingsWriter extends PushPostingsWriterBase {
     docCount++;
 
     if (docBufferUpto == BLOCK_SIZE) {
-      forDeltaUtil.encodeDeltas(docDeltaBuffer, docOut);
+//      forDeltaUtil.encodeDeltas(docDeltaBuffer, docOut);
+      docGroupVIntWriter.writeValues(docOut, docDeltaBuffer, docDeltaBuffer.length);
       if (writeFreqs) {
         pforUtil.encode(freqBuffer, docOut);
       }

@@ -17,133 +17,68 @@
 package org.apache.lucene.sandbox.facet;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import org.apache.lucene.sandbox.facet.ordinals.OrdToComparable;
-import org.apache.lucene.sandbox.facet.ordinals.OrdinalGetter;
+import org.apache.lucene.sandbox.facet.ordinals.OrdinalComparator;
 import org.apache.lucene.sandbox.facet.recorders.CountFacetRecorder;
 import org.apache.lucene.sandbox.facet.recorders.LongAggregationsFacetRecorder;
 import org.apache.lucene.util.InPlaceMergeSorter;
 
-/**
- * Collection of static methods to provide most common comparables for sandbox faceting. You can
- * also use it as an example for creating your own {@link OrdToComparable} to enable custom facets
- * top-n and sorting.
- */
 public class ComparableUtils {
   private ComparableUtils() {}
 
-  private static class SkeletalOrdGetter implements OrdinalGetter {
-    int ord;
-
-    @Override
-    public int getOrd() {
-      return ord;
-    }
-  }
-
-  /** {@link OrdToComparable} that can be used to sort by ords (ascending). */
-  public static OrdToComparable<ComparableOrd> ordToComparableOrd() {
-    return new OrdToComparable<>() {
+  /** {@link OrdinalComparator} that can be used to sort by ords (ascending). */
+  public static OrdinalComparator byOrdinal() {
+    return new OrdinalComparator() {
       @Override
-      public ComparableOrd getComparable(int ord, ComparableOrd reuse) {
-        if (reuse == null) {
-          reuse = new ComparableOrd();
-        }
-        reuse.ord = ord;
-        return reuse;
+      public int compare(int ordA, int ordB) {
+        return Integer.compare(ordB, ordA);
       }
     };
   }
 
-  /** Used for {@link #ordToComparableOrd} result. */
-  public static class ComparableOrd extends SkeletalOrdGetter implements Comparable<ComparableOrd> {
-    @Override
-    public int compareTo(ComparableOrd o) {
-      return Integer.compare(o.ord, ord);
-    }
-  }
-
   /**
-   * {@link OrdToComparable} that can be used to sort ordinals by count (descending) with ord as a
+   * {@link OrdinalComparator} that can be used to sort ordinals by count (descending) with ord as a
    * tie-break (ascending) using provided {@link CountFacetRecorder}.
    */
-  public static OrdToComparable<ComparableIntOrd> ordToComparableCountOrd(
+  public static OrdinalComparator byCount(
       CountFacetRecorder recorder) {
-    return new OrdToComparable<>() {
+    return new OrdinalComparator() {
       @Override
-      public ComparableIntOrd getComparable(int ord, ComparableIntOrd reuse) {
-        if (reuse == null) {
-          reuse = new ComparableIntOrd();
+      public int compare(int ordA, int ordB) {
+        int cmp = Integer.compare(recorder.getCount(ordA), recorder.getCount(ordB));
+        if (cmp == 0) {
+          cmp = Integer.compare(ordB, ordA);
         }
-        reuse.ord = ord;
-        reuse.rank = recorder.getCount(ord);
-        return reuse;
+        return cmp;
       }
     };
   }
 
-  /** Used for {@link #ordToComparableCountOrd} result. */
-  public static class ComparableIntOrd extends SkeletalOrdGetter
-      implements Comparable<ComparableIntOrd> {
-    private ComparableIntOrd() {}
-
-    private int rank;
-
-    @Override
-    public int compareTo(ComparableIntOrd o) {
-      int cmp = Integer.compare(rank, o.rank);
-      if (cmp == 0) {
-        cmp = Integer.compare(o.ord, ord);
-      }
-      return cmp;
-    }
-  }
-
   /**
-   * {@link OrdToComparable} to sort ordinals by long aggregation (descending) with tie-break by
+   * {@link OrdinalComparator} to sort ordinals by long aggregation (descending) with tie-break by
    * count (descending) with ordinal as a tie-break (ascending) using provided {@link
    * CountFacetRecorder} and {@link LongAggregationsFacetRecorder}.
    */
-  public static OrdToComparable<ComparableLongIntOrd> ordToComparableRankCountOrd(
+  public static OrdinalComparator byAggregation(
       CountFacetRecorder countRecorder,
       LongAggregationsFacetRecorder longAggregationsFacetRecorder,
       int aggregationId) {
-    return new OrdToComparable<>() {
+    return new OrdinalComparator() {
       @Override
-      public ComparableLongIntOrd getComparable(int ord, ComparableLongIntOrd reuse) {
-        if (reuse == null) {
-          reuse = new ComparableLongIntOrd();
+      public int compare(int ordA, int ordB) {
+        long primaryRankA = longAggregationsFacetRecorder.getRecordedValue(ordA, aggregationId);
+        long primaryRankB = longAggregationsFacetRecorder.getRecordedValue(ordB, aggregationId);
+        int secondaryRankA = countRecorder.getCount(ordA);
+        int secondaryRankB = countRecorder.getCount(ordB);
+        int cmp = Long.compare(primaryRankA, primaryRankB);
+        if (cmp == 0) {
+          cmp = Integer.compare(secondaryRankA, secondaryRankB);
+          if (cmp == 0) {
+            cmp = Integer.compare(ordB, ordA);
+          }
         }
-        reuse.ord = ord;
-        reuse.secondaryRank = countRecorder.getCount(ord);
-        reuse.primaryRank = longAggregationsFacetRecorder.getRecordedValue(ord, aggregationId);
-        return reuse;
+        return cmp;
       }
     };
-  }
-
-  /** Used for {@link #ordToComparableRankCountOrd} result. */
-  public static class ComparableLongIntOrd extends SkeletalOrdGetter
-      implements Comparable<ComparableLongIntOrd> {
-    private ComparableLongIntOrd() {}
-    ;
-
-    private int secondaryRank;
-    private long primaryRank;
-
-    @Override
-    public int compareTo(ComparableLongIntOrd o) {
-      int cmp = Long.compare(primaryRank, o.primaryRank);
-      if (cmp == 0) {
-        cmp = Integer.compare(secondaryRank, o.secondaryRank);
-        if (cmp == 0) {
-          cmp = Integer.compare(o.ord, ord);
-        }
-      }
-      return cmp;
-    }
   }
 
   /**
@@ -153,26 +88,20 @@ public class ComparableUtils {
    * org.apache.lucene.sandbox.facet.ordinals.TopnOrdinalIterator} instead.
    *
    * @param ordinals array of ordinals to sort
-   * @param ordToComparable defines sort order
+   * @param ordinalComparator defines sort order
    */
-  public static <T extends Comparable<T> & OrdinalGetter> void sort(
-      int[] ordinals, OrdToComparable<T> ordToComparable) throws IOException {
-    List<T> comparables = new ArrayList<>(ordinals.length);
-    for (int i = 0; i < ordinals.length; i++) {
-      comparables.add(ordToComparable.getComparable(ordinals[i], null));
-    }
+  public static void sort(int[] ordinals, OrdinalComparator ordinalComparator) throws IOException {
     new InPlaceMergeSorter() {
       @Override
       protected void swap(int i, int j) {
         int tmp = ordinals[i];
         ordinals[i] = ordinals[j];
         ordinals[j] = tmp;
-        Collections.swap(comparables, i, j);
       }
 
       @Override
       protected int compare(int i, int j) {
-        return comparables.get(j).compareTo(comparables.get(i));
+        return ordinalComparator.compare(ordinals[j], ordinals[i]);
       }
     }.sort(0, ordinals.length);
   }

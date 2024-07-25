@@ -16,21 +16,10 @@
  */
 package org.apache.lucene.sandbox.facet.ordinals;
 
-/**
- * Generates {@link Comparable} for provided ordinal. For example it can be used to find topN facet
- * ordinals.
- *
- * @param <T> something ordinals can be compared by.
- */
-public interface OrdToComparable<T extends Comparable<T>> {
+public interface OrdinalComparator {
 
-  /**
-   * For given ordinal, get something it can be compared by.
-   *
-   * @param ord ordinal.
-   * @param reuse object that can be reused for building result. If null, new object should be
-   *     created.
-   * @return Comparable.
-   */
-  T getComparable(int ord, T reuse);
+  // NOTE: We could also just use java's Comparator<Integer> as another option. The advantage
+  // of this is that we can work with primitives and avoid int auto-boxing. (We might also be
+  // able to leverage the existing IntComparator in Lucene, but I think it's a bit special-purpose)
+  int compare(int ordA, int ordB);
 }

@@ -33,7 +33,7 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.sandbox.facet.cutters.TaxonomyFacetsCutter;
 import org.apache.lucene.sandbox.facet.labels.OrdLabelBiMap;
 import org.apache.lucene.sandbox.facet.labels.TaxonomyOrdLabelBiMap;
-import org.apache.lucene.sandbox.facet.ordinals.OrdToComparable;
+import org.apache.lucene.sandbox.facet.ordinals.OrdinalComparator;
 import org.apache.lucene.sandbox.facet.ordinals.OrdinalIterator;
 import org.apache.lucene.sandbox.facet.ordinals.TaxonomyChildrenOrdinalIterator;
 import org.apache.lucene.sandbox.facet.ordinals.TopnOrdinalIterator;
@@ -381,15 +381,15 @@ public class TestFacetRecorders extends SandboxFacetTestCase {
             ordLabels.getOrd(parentLabel));
     final int[] resultOrdinals;
     if (sortByLongAggregationId != null) {
-      OrdToComparable<ComparableUtils.ComparableLongIntOrd> ordToComparable =
-          ComparableUtils.ordToComparableRankCountOrd(
+      OrdinalComparator<ComparableUtils.ComparableLongIntOrd> ordinalComparator =
+          ComparableUtils.byAggregation(
               countFacetRecorder, longAggregationsFacetRecorder, sortByLongAggregationId);
       OrdinalIterator topByCountOrds =
-          new TopnOrdinalIterator<>(childrenIternator, ordToComparable, topN);
+          new TopnOrdinalIterator<>(childrenIternator, ordinalComparator, topN);
       resultOrdinals = topByCountOrds.toArray();
     } else {
-      OrdToComparable<ComparableUtils.ComparableIntOrd> countComparable =
-          ComparableUtils.ordToComparableCountOrd(countFacetRecorder);
+      OrdinalComparator<ComparableUtils.ComparableIntOrd> countComparable =
+          ComparableUtils.byCount(countFacetRecorder);
       OrdinalIterator topByCountOrds =
           new TopnOrdinalIterator<>(childrenIternator, countComparable, topN);
       resultOrdinals = topByCountOrds.toArray();

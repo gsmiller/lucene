@@ -23,10 +23,9 @@ import org.apache.lucene.util.PriorityQueue;
  * Class that consumes incoming ordinals, sorts them by provided Comparable, and returns first top N
  * ordinals only.
  */
-public class TopnOrdinalIterator<T extends Comparable<T> & OrdinalGetter>
-    implements OrdinalIterator {
+public class TopnOrdinalIterator implements OrdinalIterator {
 
-  private final OrdToComparable<T> ordToComparable;
+  private final OrdinalComparator ordinalComparator;
   private final OrdinalIterator sourceOrds;
   private final int topN;
   private int[] result;
@@ -34,12 +33,12 @@ public class TopnOrdinalIterator<T extends Comparable<T> & OrdinalGetter>
 
   /** Constructor. */
   public TopnOrdinalIterator(
-      OrdinalIterator sourceOrds, OrdToComparable<T> ordToComparable, int topN) {
+      OrdinalIterator sourceOrds, OrdinalComparator ordinalComparator, int topN) {
     if (topN <= 0) {
       throw new IllegalArgumentException("topN must be > 0 (got: " + topN + ")");
     }
     this.sourceOrds = sourceOrds;
-    this.ordToComparable = ordToComparable;
+    this.ordinalComparator = ordinalComparator;
     this.topN = topN;
   }
 
@@ -49,16 +48,19 @@ public class TopnOrdinalIterator<T extends Comparable<T> & OrdinalGetter>
     //  probably doesn't make sense for large enough taxonomy indexes?
     //  e.g. TopOrdAndIntQueue q = new TopComparableQueue(Math.min(taxoReader.getSize(), topN));
     // TODO: create queue lazily - skip if first nextOrd is NO_MORE_ORDS ?
-    TopComparableQueue<T> queue = new TopComparableQueue<>(topN);
-    T reuse = null;
+    TopComparableQueue queue = new TopComparableQueue(topN);
+    Container reuse = null;
     for (int ord = sourceOrds.nextOrd(); ord != NO_MORE_ORDS; ord = sourceOrds.nextOrd()) {
-      reuse = ordToComparable.getComparable(ord, reuse);
+      if (reuse == null) {
+        reuse = new Container();
+      }
+      reuse.ord = ord;
       reuse = queue.insertWithOverflow(reuse);
     }
     // Now we need to read from the queue as well as the queue gives the least element, not the top.
     result = new int[queue.size()];
     for (int i = result.length - 1; i >= 0; i--) {
-      result[i] = queue.pop().getOrd();
+      result[i] = queue.pop().ord;
     }
     currentIndex = 0;
   }
@@ -76,7 +78,8 @@ public class TopnOrdinalIterator<T extends Comparable<T> & OrdinalGetter>
   }
 
   /** Keeps top N results ordered by Comparable. */
-  private static class TopComparableQueue<T extends Comparable<T>> extends PriorityQueue<T> {
+  private static class TopComparableQueue extends PriorityQueue<Container> {
+    private OrdinalComparator comparisonLogic;
 
     /** Sole constructor. */
     public TopComparableQueue(int topN) {
@@ -84,8 +87,12 @@ public class TopnOrdinalIterator<T extends Comparable<T> & OrdinalGetter>
     }
 
     @Override
-    protected boolean lessThan(T a, T b) {
-      return a.compareTo(b) < 0;
+    protected boolean lessThan(Container a, Container b) {
+      return comparisonLogic.compare(a.ord, b.ord) < 0;
     }
+  }
+
+  private static class Container {
+    int ord;
   }
 }

@@ -120,12 +120,13 @@ public final class ForDeltaUtil {
   }
 
   private static void prefixSum32(long[] arr, long base) {
-    arr[0] += base << 32;
     innerPrefixSum32(arr);
     expand32(arr);
-    final long l = arr[BLOCK_SIZE / 2 - 1];
-    for (int i = BLOCK_SIZE / 2; i < BLOCK_SIZE; ++i) {
-      arr[i] += l;
+    final long l0 = base;
+    final long l1 = l0 + arr[BLOCK_SIZE / 2 - 1];
+    for (int i = 0; i < BLOCK_SIZE / 2; ++i) {
+      arr[i] += l0;
+      arr[BLOCK_SIZE / 2 + i] += l1;
     }
   }
 

@@ -633,7 +633,6 @@ public class IndexSearcher {
     final LeafSlice[] leafSlices = getSlices();
 
     List<C> collectors = new ArrayList<>(leafSlices.length);
-    CollectorOwner<C, T> collectorOwner = new CollectorOwner<>(collectorManager, collectors);
     final C firstCollector = collectorManager.newCollector();
     collectors.add(firstCollector);
     query = rewrite(query, firstCollector.scoreMode().needsScores());

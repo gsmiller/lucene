@@ -634,7 +634,8 @@ public class IndexSearcher {
 
     List<C> collectors = new ArrayList<>(leafSlices.length);
     CollectorOwner<C, T> collectorOwner = new CollectorOwner<>(collectorManager, collectors);
-    final C firstCollector = collectorOwner.newCollector();
+    final C firstCollector = collectorManager.newCollector();
+    collectors.add(firstCollector);
     query = rewrite(query, firstCollector.scoreMode().needsScores());
     final Weight weight = createWeight(query, firstCollector.scoreMode(), 1);
 
@@ -644,7 +645,8 @@ public class IndexSearcher {
     } else {
       final ScoreMode scoreMode = firstCollector.scoreMode();
       for (int i = 1; i < leafSlices.length; ++i) {
-        final C collector = collectorOwner.newCollector();
+        final C collector = collectorManager.newCollector();
+        collectors.add(collector);
         if (scoreMode != collector.scoreMode()) {
           throw new IllegalStateException(
                   "CollectorManager does not always produce collectors with the same score mode");
@@ -663,7 +665,7 @@ public class IndexSearcher {
       taskExecutor.invokeAll(listTasks);
     }
 
-    return collectorOwner.getResult();
+    return collectorManager.reduce(collectors);
   }
 
   /**

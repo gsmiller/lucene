@@ -46,7 +46,7 @@ public final class CollectorOwner<C extends Collector, T> {
   //  I think making the list synchronized here is not a huge concern, at the same time, do we want
   //  to do something about it?
   //  e.g. have boolean property in constructor that makes it threads friendly when set?
-  private final List<C> collectors = Collections.synchronizedList(new ArrayList<>());
+  private final List<C> collectors = new ArrayList<>();
 
   public CollectorOwner(CollectorManager<C, T> manager) {
     this.manager = manager;

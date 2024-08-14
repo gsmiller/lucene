@@ -49,9 +49,9 @@ public final class CollectorOwner<C extends Collector, T> {
     collectors = new ArrayList<>();
   }
 
-  public CollectorOwner(CollectorManager<C, T> manager, int size) {
+  public CollectorOwner(CollectorManager<C, T> manager, List<C> collectors) {
     this.manager = manager;
-    collectors = new ArrayList<>(size);
+    this.collectors = collectors;
   }
 
   /** Return a new {@link Collector}. This must return a different instance on each call. */

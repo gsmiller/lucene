@@ -632,7 +632,8 @@ public class IndexSearcher {
       throws IOException {
     final LeafSlice[] leafSlices = getSlices();
 
-    CollectorOwner<C, T> collectorOwner = new CollectorOwner<>(collectorManager, leafSlices.length);
+    List<C> collectors = new ArrayList<>(leafSlices.length);
+    CollectorOwner<C, T> collectorOwner = new CollectorOwner<>(collectorManager, collectors);
     final C firstCollector = collectorOwner.newCollector();
     query = rewrite(query, firstCollector.scoreMode().needsScores());
     final Weight weight = createWeight(query, firstCollector.scoreMode(), 1);
@@ -652,7 +653,7 @@ public class IndexSearcher {
       final List<Callable<C>> listTasks = new ArrayList<>(leafSlices.length);
       for (int i = 0; i < leafSlices.length; ++i) {
         final LeafReaderContext[] leaves = leafSlices[i].leaves;
-        final C collector = collectorOwner.getCollector(i);
+        final C collector = collectors.get(i);
         listTasks.add(
                 () -> {
                   search(Arrays.asList(leaves), weight, collector);

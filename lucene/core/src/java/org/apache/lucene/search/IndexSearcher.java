@@ -645,6 +645,7 @@ public class IndexSearcher {
       // there are no segments, nothing to offload to the executor, but we do need to call reduce to
       // create some kind of empty result
       assert leafContexts.isEmpty();
+      return collectorManager.reduce(collectors);
     } else {
       final ScoreMode scoreMode = firstCollector.scoreMode();
       for (int i = 1; i < leafSlices.length; ++i) {
@@ -666,8 +667,8 @@ public class IndexSearcher {
             });
       }
       taskExecutor.invokeAll(listTasks);
+      return collectorManager.reduce(collectors);
     }
-    return collectorManager.reduce(collectors);
   }
 
   /**

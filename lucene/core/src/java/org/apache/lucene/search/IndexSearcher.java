@@ -630,8 +630,7 @@ public class IndexSearcher {
    */
   public <C extends Collector, T> T search(Query query, CollectorManager<C, T> collectorManager)
       throws IOException {
-    CollectorOwner<C, T> collectorOwner = new CollectorOwner<>(collectorManager);
-    final C firstCollector = collectorOwner.newCollector();
+    final C firstCollector = collectorManager.newCollector();
     query = rewrite(query, firstCollector.scoreMode().needsScores());
     final Weight weight = createWeight(query, firstCollector.scoreMode(), 1);
 
@@ -639,10 +638,14 @@ public class IndexSearcher {
     if (leafSlices.length == 0) {
       // there are no segments, nothing to offload to the executor
       assert leafContexts.isEmpty();
+      return collectorManager.reduce(Collections.singletonList(firstCollector));
     } else {
+      List<C> collectors = new ArrayList<>();
+      collectors.add(firstCollector);
       final ScoreMode scoreMode = firstCollector.scoreMode();
       for (int i = 1; i < leafSlices.length; ++i) {
-        final C collector = collectorOwner.newCollector();
+        final C collector = collectorManager.newCollector();
+        collectors.add(collector);
         if (scoreMode != collector.scoreMode()) {
           throw new IllegalStateException(
                   "CollectorManager does not always produce collectors with the same score mode");
@@ -651,7 +654,7 @@ public class IndexSearcher {
       final List<Callable<C>> listTasks = new ArrayList<>(leafSlices.length);
       for (int i = 0; i < leafSlices.length; ++i) {
         final LeafReaderContext[] leaves = leafSlices[i].leaves;
-        final C collector = collectorOwner.getCollector(i);
+        final C collector = collectors.get(i);
         listTasks.add(
                 () -> {
                   search(Arrays.asList(leaves), weight, collector);
@@ -659,9 +662,8 @@ public class IndexSearcher {
                 });
       }
       taskExecutor.invokeAll(listTasks);
+      return collectorManager.reduce(collectors);
     }
-
-    return collectorOwner.getResult();
   }
 
   /**

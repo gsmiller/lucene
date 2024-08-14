@@ -21,14 +21,12 @@ import static org.apache.lucene.sandbox.facet.ComparableUtils.byAggregatedValue;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import org.apache.lucene.analysis.core.WhitespaceAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.DoubleDocValuesField;
 import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.facet.DrillDownQuery;
-import org.apache.lucene.facet.DrillSideways;
 import org.apache.lucene.facet.FacetField;
 import org.apache.lucene.facet.FacetResult;
 import org.apache.lucene.facet.FacetsConfig;
@@ -44,7 +42,6 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.IndexWriterConfig.OpenMode;
 import org.apache.lucene.sandbox.facet.ComparableUtils;
-import org.apache.lucene.sandbox.facet.FacetFieldCollector;
 import org.apache.lucene.sandbox.facet.FacetFieldCollectorManager;
 import org.apache.lucene.sandbox.facet.cutters.TaxonomyFacetsCutter;
 import org.apache.lucene.sandbox.facet.cutters.ranges.LongRangeFacetCutter;
@@ -58,7 +55,6 @@ import org.apache.lucene.sandbox.facet.recorders.CountFacetRecorder;
 import org.apache.lucene.sandbox.facet.recorders.LongAggregationsFacetRecorder;
 import org.apache.lucene.sandbox.facet.recorders.MultiFacetsRecorder;
 import org.apache.lucene.sandbox.facet.recorders.Reducer;
-import org.apache.lucene.search.CollectorOwner;
 import org.apache.lucene.search.DoubleValuesSource;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.LongValuesSource;
@@ -536,119 +532,6 @@ public class SandboxFacetsExample {
         labelsAndValues.size());
   }
 
-  /**
-   * User drills down on 'Publish Date/2010', and we return facets for both 'Publish Date' and
-   * 'Author', using DrillSideways.
-   */
-  private List<FacetResult> drillSideways() throws IOException {
-    //// (1) init readers and searcher
-    DirectoryReader indexReader = DirectoryReader.open(indexDir);
-    IndexSearcher searcher = new IndexSearcher(indexReader);
-    TaxonomyReader taxoReader = new DirectoryTaxonomyReader(taxoDir);
-
-    //// (2) init drill down query and collectors
-    TaxonomyFacetsCutter defaultTaxoCutter =
-        new TaxonomyFacetsCutter(DEFAULT_INDEX_FIELD_NAME, config, taxoReader);
-    CountFacetRecorder drillDownRecorder = new CountFacetRecorder();
-    FacetFieldCollectorManager<CountFacetRecorder> drillDownCollectorManager =
-        new FacetFieldCollectorManager<>(defaultTaxoCutter, drillDownRecorder);
-
-    DrillDownQuery q = new DrillDownQuery(config);
-
-    //// (2.1) add query and collector dimensions
-    q.add("Publish Date", "2010");
-    CountFacetRecorder publishDayDimensionRecorder = new CountFacetRecorder();
-    // Note that it is safe to use the same FacetsCutter here because we create Leaf cutter for each
-    // leaf for each
-    // FacetFieldCollectorManager anyway, and leaf cutter are not merged or anything like that.
-    FacetFieldCollectorManager<CountFacetRecorder> publishDayDimensionCollectorManager =
-        new FacetFieldCollectorManager<>(defaultTaxoCutter, publishDayDimensionRecorder);
-    List<CollectorOwner<FacetFieldCollector, CountFacetRecorder>> drillSidewaysOwners =
-        List.of(new CollectorOwner<>(publishDayDimensionCollectorManager));
-
-    //// (3) search
-    // Right now we return the same Recorder we created - so we can ignore results
-    DrillSideways ds = new DrillSideways(searcher, config, taxoReader);
-    // We must wrap list of drill sideways owner with unmodifiableList to make generics work.
-    ds.search(
-        q,
-        new CollectorOwner<>(drillDownCollectorManager),
-        Collections.unmodifiableList(drillSidewaysOwners));
-
-    //// (4) Get top 10 results by count for Author
-    List<FacetResult> facetResults = new ArrayList<>(2);
-    // This object provides labels for ordinals.
-    TaxonomyOrdLabelBiMap ordLabels = new TaxonomyOrdLabelBiMap(taxoReader);
-    // This object is used to get topN results by count
-    ComparableSupplier<ComparableUtils.ByCountComparable> countComparable =
-        ComparableUtils.byCount(drillDownRecorder);
-    //// (4.1) Chain two ordinal iterators to get top N children
-    int dimOrdinal = ordLabels.getOrd(new FacetLabel("Author"));
-    OrdinalIterator childrenIterator =
-        new TaxonomyChildrenOrdinalIterator(
-            drillDownRecorder.recordedOrds(),
-            taxoReader.getParallelTaxonomyArrays().parents(),
-            dimOrdinal);
-    OrdinalIterator topByCountOrds =
-        new TopnOrdinalIterator<>(childrenIterator, countComparable, 10);
-    // Get array of final ordinals - we need to use all of them to get labels first, and then to get
-    // counts,
-    // but OrdinalIterator only allows reading ordinals once.
-    int[] resultOrdinals = topByCountOrds.toArray();
-
-    //// (4.2) Use faceting results
-    FacetLabel[] labels = ordLabels.getLabels(resultOrdinals);
-    List<LabelAndValue> labelsAndValues = new ArrayList<>(labels.length);
-    for (int i = 0; i < resultOrdinals.length; i++) {
-      labelsAndValues.add(
-          new LabelAndValue(
-              labels[i].lastComponent(), drillDownRecorder.getCount(resultOrdinals[i])));
-    }
-    int dimensionValue = drillDownRecorder.getCount(dimOrdinal);
-    facetResults.add(
-        new FacetResult(
-            "Author",
-            new String[0],
-            dimensionValue,
-            labelsAndValues.toArray(new LabelAndValue[0]),
-            labelsAndValues.size()));
-
-    //// (5) Same process, but for Publish Date drill sideways dimension
-    countComparable = ComparableUtils.byCount(publishDayDimensionRecorder);
-    //// (4.1) Chain two ordinal iterators to get top N children
-    dimOrdinal = ordLabels.getOrd(new FacetLabel("Publish Date"));
-    childrenIterator =
-        new TaxonomyChildrenOrdinalIterator(
-            publishDayDimensionRecorder.recordedOrds(),
-            taxoReader.getParallelTaxonomyArrays().parents(),
-            dimOrdinal);
-    topByCountOrds = new TopnOrdinalIterator<>(childrenIterator, countComparable, 10);
-    // Get array of final ordinals - we need to use all of them to get labels first, and then to get
-    // counts,
-    // but OrdinalIterator only allows reading ordinals once.
-    resultOrdinals = topByCountOrds.toArray();
-
-    //// (4.2) Use faceting results
-    labels = ordLabels.getLabels(resultOrdinals);
-    labelsAndValues = new ArrayList<>(labels.length);
-    for (int i = 0; i < resultOrdinals.length; i++) {
-      labelsAndValues.add(
-          new LabelAndValue(
-              labels[i].lastComponent(), publishDayDimensionRecorder.getCount(resultOrdinals[i])));
-    }
-    dimensionValue = publishDayDimensionRecorder.getCount(dimOrdinal);
-    facetResults.add(
-        new FacetResult(
-            "Publish Date",
-            new String[0],
-            dimensionValue,
-            labelsAndValues.toArray(new LabelAndValue[0]),
-            labelsAndValues.size()));
-
-    IOUtils.close(indexReader, taxoReader);
-    return facetResults;
-  }
-
   /** Runs the search example. */
   public List<FacetResult> runFacetOnly() throws IOException {
     index();
@@ -665,12 +548,6 @@ public class SandboxFacetsExample {
   public FacetResult runDrillDown() throws IOException {
     index();
     return drillDown();
-  }
-
-  /** Runs the drill-sideways example. */
-  public List<FacetResult> runDrillSideways() throws IOException {
-    index();
-    return drillSideways();
   }
 
   /** Runs the example of non overlapping range facets */
@@ -709,12 +586,6 @@ public class SandboxFacetsExample {
     System.out.println("Facet drill-down example (Publish Date/2010):");
     System.out.println("---------------------------------------------");
     System.out.println("Author: " + example.runDrillDown());
-
-    System.out.println("Facet drill-sideways example (Publish Date/2010):");
-    System.out.println("---------------------------------------------");
-    for (FacetResult result : example.runDrillSideways()) {
-      System.out.println(result);
-    }
 
     System.out.println("Facet counting example with exclusive ranges:");
     System.out.println("---------------------------------------------");

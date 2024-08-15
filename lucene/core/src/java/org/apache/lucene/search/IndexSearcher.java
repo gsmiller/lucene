@@ -666,6 +666,7 @@ public class IndexSearcher {
       final ScoreMode scoreMode = firstCollector.scoreMode();
       for (int i = 1; i < leafSlices.length; ++i) {
         final C collector = collectorOwner.newCollector();
+        collectorOwner.trackCollector(collector);
         if (scoreMode != collector.scoreMode()) {
           throw new IllegalStateException(
               "CollectorManager does not always produce collectors with the same score mode");

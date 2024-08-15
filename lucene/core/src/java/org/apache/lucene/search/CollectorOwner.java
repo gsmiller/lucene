@@ -46,7 +46,8 @@ public final class CollectorOwner<C extends Collector, T> {
   //  I think making the list synchronized here is not a huge concern, at the same time, do we want
   //  to do something about it?
   //  e.g. have boolean property in constructor that makes it threads friendly when set?
-  private final List<C> collectors = Collections.synchronizedList(new ArrayList<>());
+  private List<C> collectors;
+  private C firstCollector = null;
 
   public CollectorOwner(CollectorManager<C, T> manager) {
     this.manager = manager;
@@ -55,11 +56,21 @@ public final class CollectorOwner<C extends Collector, T> {
   /** Return a new {@link Collector}. This must return a different instance on each call. */
   public C newCollector() throws IOException {
     C collector = manager.newCollector();
-    collectors.add(collector);
+    if (firstCollector == null) {
+      firstCollector = collector;
+    }
     return collector;
   }
 
+  public void trackCollector(C collector) {
+    if (collectors == null) {
+      collectors = new ArrayList<>();
+    }
+    collectors.add(collector);
+  }
+
   public C getCollector(int i) {
+    assert collectors != null;
     return collectors.get(i);
   }
 
@@ -70,7 +81,11 @@ public final class CollectorOwner<C extends Collector, T> {
    */
   public T getResult() throws IOException {
     if (reduced == false) {
-      result = manager.reduce(collectors);
+      if (collectors == null) {
+        result = manager.reduce(Collections.singletonList(firstCollector));
+      } else {
+        result = manager.reduce(collectors);
+      }
       reduced = true;
     }
     return result;

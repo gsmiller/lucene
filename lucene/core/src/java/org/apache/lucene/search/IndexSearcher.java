@@ -633,7 +633,6 @@ public class IndexSearcher {
     final LeafSlice[] leafSlices = getSlices();
     final List<C> collectors = new ArrayList<>(leafSlices.length);
     final C firstCollector = collectorManager.newCollector();
-    collectors.add(firstCollector);
     query = rewrite(query, firstCollector.scoreMode().needsScores());
     final Weight weight = createWeight(query, firstCollector.scoreMode(), 1);
     return search(weight, collectorManager, firstCollector, collectors, leafSlices);
@@ -645,7 +644,9 @@ public class IndexSearcher {
       // there are no segments, nothing to offload to the executor, but we do need to call reduce to
       // create some kind of empty result
       assert leafContexts.isEmpty();
+      return collectorManager.reduce(Collections.singletonList(firstCollector));
     } else {
+      collectors.add(firstCollector);
       final ScoreMode scoreMode = firstCollector.scoreMode();
       for (int i = 1; i < leafSlices.length; ++i) {
         final C collector = collectorManager.newCollector();
@@ -665,9 +666,9 @@ public class IndexSearcher {
               return collector;
             });
       }
-      taskExecutor.invokeAll(listTasks);
+      List<C> results = taskExecutor.invokeAll(listTasks);
+      return collectorManager.reduce(results);
     }
-    return collectorManager.reduce(collectors);
   }
 
   /**

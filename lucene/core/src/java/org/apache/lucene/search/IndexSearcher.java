@@ -640,13 +640,12 @@ public class IndexSearcher {
       Weight weight, CollectorManager<C, T> collectorManager, C firstCollector) throws IOException {
     final LeafSlice[] leafSlices = getSlices();
     final List<C> collectors = new ArrayList<>(leafSlices.length);
+    collectors.add(firstCollector);
     if (leafSlices.length == 0) {
       // there are no segments, nothing to offload to the executor, but we do need to call reduce to
       // create some kind of empty result
       assert leafContexts.isEmpty();
-      return collectorManager.reduce(Collections.singletonList(firstCollector));
     } else {
-      collectors.add(firstCollector);
       final ScoreMode scoreMode = firstCollector.scoreMode();
       for (int i = 1; i < leafSlices.length; ++i) {
         final C collector = collectorManager.newCollector();
@@ -666,9 +665,9 @@ public class IndexSearcher {
               return collector;
             });
       }
-      List<C> results = taskExecutor.invokeAll(listTasks);
-      return collectorManager.reduce(results);
+      taskExecutor.invokeAll(listTasks);
     }
+    return collectorManager.reduce(collectors);
   }
 
   /**

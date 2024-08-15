@@ -633,8 +633,8 @@ public class IndexSearcher {
     final LeafSlice[] leafSlices = getSlices();
     final C firstCollector = collectorManager.newCollector();
     query = rewrite(query, firstCollector.scoreMode().needsScores());
-    final Weight weight = createWeight(query, firstCollector.scoreMode(), 1);
     final List<C> collectors = new ArrayList<>(leafSlices.length);
+    final Weight weight = createWeight(query, firstCollector.scoreMode(), 1);
     return search(weight, collectorManager, firstCollector, collectors, leafSlices);
   }
 

@@ -663,6 +663,7 @@ public class IndexSearcher {
       // there are no segments, nothing to offload to the executor
       assert leafContexts.isEmpty();
     } else {
+      collectorOwner.trackCollector(firstCollector);
       final ScoreMode scoreMode = firstCollector.scoreMode();
       for (int i = 1; i < leafSlices.length; ++i) {
         final C collector = collectorOwner.newCollector();

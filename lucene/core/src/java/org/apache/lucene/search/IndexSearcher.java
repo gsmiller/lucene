@@ -632,8 +632,15 @@ public class IndexSearcher {
       throws IOException {
     final C firstCollector = collectorManager.newCollector();
     query = rewrite(query, firstCollector.scoreMode().needsScores());
-    final Weight weight = createWeight(query, firstCollector.scoreMode(), 1);
+    
     final List<C> collectors = new ArrayList<>(8);
+
+    final QueryCache queryCache = this.queryCache;
+    Weight weight = query.createWeight(this, firstCollector.scoreMode(), 1);
+    if (firstCollector.scoreMode().needsScores() == false && queryCache != null) {
+      weight = queryCache.doCache(weight, queryCachingPolicy);
+    }
+
     return search(weight, collectorManager, firstCollector, collectors);
   }
 

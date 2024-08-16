@@ -631,13 +631,14 @@ public class IndexSearcher {
   public <C extends Collector, T> T search(Query query, CollectorManager<C, T> collectorManager)
       throws IOException {
     final C firstCollector = collectorManager.newCollector();
-    query = rewrite(query, firstCollector.scoreMode().needsScores());
+    final ScoreMode scoreMode = firstCollector.scoreMode();
+    query = rewrite(query, scoreMode.needsScores());
     
     final List<C> collectors = new ArrayList<>(8);
+    Weight weight = query.createWeight(this, scoreMode, 1);
 
     final QueryCache queryCache = this.queryCache;
-    Weight weight = query.createWeight(this, firstCollector.scoreMode(), 1);
-    if (firstCollector.scoreMode().needsScores() == false && queryCache != null) {
+    if (scoreMode.needsScores() == false && queryCache != null) {
       weight = queryCache.doCache(weight, queryCachingPolicy);
     }
 

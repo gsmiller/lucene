@@ -633,9 +633,9 @@ public class IndexSearcher {
     final C firstCollector = collectorManager.newCollector();
     final ScoreMode scoreMode = firstCollector.scoreMode();
     query = rewrite(query, scoreMode.needsScores());
-    
-    final List<C> collectors = new ArrayList<>(8);
+
     Weight weight = query.createWeight(this, scoreMode, 1);
+    final List<C> collectors = new ArrayList<>(8);
 
     final QueryCache queryCache = this.queryCache;
     if (scoreMode.needsScores() == false && queryCache != null) {

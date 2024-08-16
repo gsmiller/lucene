@@ -632,8 +632,8 @@ public class IndexSearcher {
       throws IOException {
     final C firstCollector = collectorManager.newCollector();
     query = rewrite(query, firstCollector.scoreMode().needsScores());
-    final List<C> collectors = new ArrayList<>(8);
     final Weight weight = createWeight(query, firstCollector.scoreMode(), 1);
+    final List<C> collectors = new ArrayList<>(8);
     return search(weight, collectorManager, firstCollector, collectors);
   }
 

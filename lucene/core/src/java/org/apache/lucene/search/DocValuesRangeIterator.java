@@ -94,7 +94,7 @@ public final class DocValuesRangeIterator extends TwoPhaseIterator {
 
     @Override
     public int advance(int target) throws IOException {
-      return NO_MORE_DOCS;
+      throw new IllegalStateException("boom");
     }
 
     @Override

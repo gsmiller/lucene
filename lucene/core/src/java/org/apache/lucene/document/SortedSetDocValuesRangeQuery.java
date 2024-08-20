@@ -197,7 +197,7 @@ final class SortedSetDocValuesRangeQuery extends Query {
                   };
             }
             if (skipper != null) {
-              iterator = new DocValuesRangeIterator(iterator, skipper, minOrd, maxOrd);
+              iterator = new DocValuesRangeIterator(iterator, skipper, minOrd, maxOrd, false);
             }
             return new ConstantScoreScorer(score(), scoreMode, iterator);
           }

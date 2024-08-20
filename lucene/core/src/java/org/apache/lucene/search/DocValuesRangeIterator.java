@@ -94,52 +94,7 @@ public final class DocValuesRangeIterator extends TwoPhaseIterator {
 
     @Override
     public int advance(int target) throws IOException {
-      while (true) {
-        if (target > upTo) {
-          skipper.advance(target);
-          // If target doesn't have a value and is between two blocks, it is possible that advance()
-          // moved to a block that doesn't contain `target`.
-          target = Math.max(target, skipper.minDocID(0));
-          if (target == NO_MORE_DOCS) {
-            return doc = NO_MORE_DOCS;
-          }
-          upTo = skipper.maxDocID(0);
-          match = match(0);
-
-          // If we have a YES or NO decision, see if we still have the same decision on a higher
-          // level (= on a wider range of doc IDs)
-          int nextLevel = 1;
-          while (match != Match.MAYBE
-              && nextLevel < skipper.numLevels()
-              && match == match(nextLevel)) {
-            upTo = skipper.maxDocID(nextLevel);
-            nextLevel++;
-          }
-        }
-        switch (match) {
-          case YES:
-            return doc = target;
-          case MAYBE:
-          case IF_DOC_HAS_VALUE:
-            if (target > innerApproximation.docID()) {
-              target = innerApproximation.advance(target);
-            }
-            if (target <= upTo) {
-              return doc = target;
-            }
-            // Otherwise we are breaking the invariant that `doc` must always be <= upTo, so let
-            // the loop run one more iteration to advance the skipper.
-            break;
-          case NO:
-            if (upTo == DocIdSetIterator.NO_MORE_DOCS) {
-              return doc = NO_MORE_DOCS;
-            }
-            target = upTo + 1;
-            break;
-          default:
-            throw new AssertionError("Unknown enum constant: " + match);
-        }
-      }
+      return NO_MORE_DOCS;
     }
 
     @Override

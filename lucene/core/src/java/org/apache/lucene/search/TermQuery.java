@@ -117,70 +117,7 @@ public class TermQuery extends Query {
 
     @Override
     public ScorerSupplier scorerSupplier(LeafReaderContext context) throws IOException {
-      assert termStates == null || termStates.wasBuiltFor(ReaderUtil.getTopLevelContext(context))
-          : "The top-reader used to create Weight is not the same as the current reader's top-reader ("
-              + ReaderUtil.getTopLevelContext(context);
-
-      final IOSupplier<TermState> stateSupplier = termStates.get(context);
-      if (stateSupplier == null) {
-        return null;
-      }
-
-      return new ScorerSupplier() {
-
-        private TermsEnum termsEnum;
-        private boolean topLevelScoringClause = false;
-
-        private TermsEnum getTermsEnum() throws IOException {
-          if (termsEnum == null) {
-            TermState state = stateSupplier.get();
-            if (state == null) {
-              return null;
-            }
-            termsEnum = context.reader().terms(term.field()).iterator();
-            termsEnum.seekExact(term.bytes(), state);
-          }
-          return termsEnum;
-        }
-
-        @Override
-        public Scorer get(long leadCost) throws IOException {
-          TermsEnum termsEnum = getTermsEnum();
-          if (termsEnum == null) {
-            return new ConstantScoreScorer(0f, scoreMode, DocIdSetIterator.empty());
-          }
-
-          LeafSimScorer scorer =
-              new LeafSimScorer(simScorer, context.reader(), term.field(), scoreMode.needsScores());
-          if (scoreMode == ScoreMode.TOP_SCORES) {
-            return new TermScorer(
-                TermWeight.this,
-                termsEnum.impacts(PostingsEnum.FREQS),
-                scorer,
-                topLevelScoringClause);
-          } else {
-            return new TermScorer(
-                termsEnum.postings(
-                    null, scoreMode.needsScores() ? PostingsEnum.FREQS : PostingsEnum.NONE),
-                scorer);
-          }
-        }
-
-        @Override
-        public long cost() {
-          try {
-            TermsEnum te = getTermsEnum();
-            return te == null ? 0 : te.docFreq();
-          } catch (IOException e) {
-            throw new UncheckedIOException(e);
-          }
-        }
-
-        @Override
-        public void setTopLevelScoringClause() throws IOException {
-          topLevelScoringClause = true;
-        }
-      };
+      throw new UnsupportedOperationException("boom");
     }
 
     @Override

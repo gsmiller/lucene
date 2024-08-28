@@ -56,11 +56,11 @@ class ExclusiveLongRangeCounter extends LongRangeCounter {
 
     // Keep track of elementary interval boundary ends (for bsearching) along with the requested
     // range they map back to (and -1 when they map to a "gap" range):
-    boundaries = new long[elementaryIntervals.size()];
+    boundaries = new long[elementaryIntervals.size() + 4];
     rangeNums = new int[elementaryIntervals.size()];
     Arrays.fill(rangeNums, -1);
     int currRange = 0;
-    for (int i = 0; i < boundaries.length; i++) {
+    for (int i = 0; i < boundaries.length - 4; i++) {
       boundaries[i] = elementaryIntervals.get(i).end;
       if (currRange < sortedRanges.length) {
         LongRangeAndPos curr = sortedRanges[currRange];
@@ -70,6 +70,7 @@ class ExclusiveLongRangeCounter extends LongRangeCounter {
         }
       }
     }
+    Arrays.fill(boundaries, boundaries.length - 4, boundaries.length, Long.MAX_VALUE);
   }
 
   @Override

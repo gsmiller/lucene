@@ -77,10 +77,11 @@ class OverlappingLongRangeCounter extends LongRangeCounter {
     }
 
     // Keep track of elementary interval max boundaries for bsearch:
-    boundaries = new long[elementaryIntervals.size()];
-    for (int i = 0; i < boundaries.length; i++) {
+    boundaries = new long[elementaryIntervals.size() + 4];
+    for (int i = 0; i < boundaries.length - 4; i++) {
       boundaries[i] = elementaryIntervals.get(i).end;
     }
+    Arrays.fill(boundaries, boundaries.length - 4, boundaries.length, Long.MAX_VALUE);
   }
 
   @Override
@@ -88,7 +89,7 @@ class OverlappingLongRangeCounter extends LongRangeCounter {
     super.startMultiValuedDoc();
     // Lazy init a bitset to track the elementary intervals we see of a multi-valued doc:
     if (multiValuedDocElementaryIntervalHits == null) {
-      multiValuedDocElementaryIntervalHits = new FixedBitSet(boundaries.length);
+      multiValuedDocElementaryIntervalHits = new FixedBitSet(boundaries.length - 4);
     } else {
       multiValuedDocElementaryIntervalHits.clear();
     }
@@ -151,7 +152,7 @@ class OverlappingLongRangeCounter extends LongRangeCounter {
   protected void processSingleValuedHit(int elementaryIntervalNum) {
     // Lazy init:
     if (singleValuedElementaryIntervalCounts == null) {
-      singleValuedElementaryIntervalCounts = new int[boundaries.length];
+      singleValuedElementaryIntervalCounts = new int[boundaries.length - 4];
     }
 
     singleValuedElementaryIntervalCounts[elementaryIntervalNum]++;

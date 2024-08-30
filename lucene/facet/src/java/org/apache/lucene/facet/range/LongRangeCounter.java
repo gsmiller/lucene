@@ -85,19 +85,9 @@ abstract class LongRangeCounter {
     return start;
   }
 
-  void addSingleValuedBranchless(long v) {
+  /** Count a single valued doc */
+  void addSingleValued(long v) {
     long[] boundaries = boundaries();
-
-//    int idx = 0;
-//    for (int i = 0; i < boundaries.length; i++) {
-//      if (v <= boundaries[i]) {
-//        idx = i;
-//        break;
-//      }
-//    }
-//    processSingleValuedHit(idx);
-
-
     int start = 0;
     for (int i = start; i + 4 <= boundaries.length; i += 4) {
       if (v <= boundaries[i + 4 - 1]) {
@@ -105,67 +95,14 @@ abstract class LongRangeCounter {
         break;
       }
     }
-    assert(v <= boundaries[start + 3]);
-//    for (int i = 0; i < 4; i++) {
-//      if (v <= boundaries[start + i]) {
-//        start = start + i;
-//        break;
-//      }
-//    }
-//    processSingleValuedHit(start);
+    assert v <= boundaries[start + 3];
 
     int idx = bSearch4(boundaries, v, start);
     processSingleValuedHit(idx);
   }
 
-  /** Count a single valued doc */
-  void addSingleValued(long v) {
-
-    // NOTE: this works too, but it's ~6% slower on a simple
-    // test with a high-freq TermQuery w/ range faceting on
-    // wikimediumall:
-    /*
-    int index = Arrays.binarySearch(boundaries, v);
-    if (index < 0) {
-      index = -index-1;
-    }
-    leafCounts[index]++;
-    */
-
-    // Binary search to find matched elementary range; we
-    // are guaranteed to find a match because the last
-    // boundary is Long.MAX_VALUE:
-
-    addSingleValuedBranchless(v);
-
-
-//    long[] boundaries = boundaries();
-//
-//    int lo = 0;
-//    int hi = boundaries.length - 1 - 4;
-//    while (true) {
-//      int mid = (lo + hi) >>> 1;
-//      if (v <= boundaries[mid]) {
-//        if (mid == 0) {
-//          processSingleValuedHit(mid);
-//          return;
-//        } else {
-//          hi = mid - 1;
-//        }
-//      } else if (v > boundaries[mid + 1]) {
-//        lo = mid + 1;
-//      } else {
-//        processSingleValuedHit(mid + 1);
-//        return;
-//      }
-//    }
-
-
-  }
-
   /** Count a multi-valued doc value */
-  void addMultiValuedBranchless(long v) {
-
+  void addMultiValued(long v) {
     if (rangeCount() == 0) {
       return; // don't bother if there aren't any requested ranges
     }
@@ -194,60 +131,11 @@ abstract class LongRangeCounter {
         break;
       }
     }
-    assert(v <= boundaries[start + 3]);
+    assert v <= boundaries[start + 3];
 
     int idx = bSearch4(boundaries, v, start);
     processMultiValuedHit(idx);
     multiValuedDocLastSeenElementaryInterval = idx;
-  }
-
-  /** Count a multi-valued doc value */
-  void addMultiValued(long v) {
-
-    addMultiValuedBranchless(v);
-
-//    if (rangeCount() == 0) {
-//      return; // don't bother if there aren't any requested ranges
-//    }
-//
-//    long[] boundaries = boundaries();
-//
-//    // First check if we've "advanced" beyond the last elementary interval we counted for this doc.
-//    // If we haven't, there's no sense doing anything else:
-//    if (multiValuedDocLastSeenElementaryInterval != -1
-//        && v <= boundaries[multiValuedDocLastSeenElementaryInterval]) {
-//      return;
-//    }
-//
-//    // Also check if we've already counted the last elementary interval. If so, there's nothing
-//    // else to count for this doc:
-//    final int nextCandidateElementaryInterval = multiValuedDocLastSeenElementaryInterval + 1;
-//    if (nextCandidateElementaryInterval == boundaries.length) {
-//      return;
-//    }
-//
-//    // Binary search in the range of the next candidate interval up to the last interval:
-//    int lo = nextCandidateElementaryInterval;
-//    int hi = boundaries.length - 1 - 4;
-//    while (true) {
-//      int mid = (lo + hi) >>> 1;
-//      if (v <= boundaries[mid]) {
-//        if (mid == nextCandidateElementaryInterval) {
-//          processMultiValuedHit(mid);
-//          multiValuedDocLastSeenElementaryInterval = mid;
-//          return;
-//        } else {
-//          hi = mid - 1;
-//        }
-//      } else if (v > boundaries[mid + 1]) {
-//        lo = mid + 1;
-//      } else {
-//        int idx = mid + 1;
-//        processMultiValuedHit(idx);
-//        multiValuedDocLastSeenElementaryInterval = idx;
-//        return;
-//      }
-//    }
   }
 
   /**

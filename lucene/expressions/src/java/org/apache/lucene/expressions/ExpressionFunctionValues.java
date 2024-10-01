@@ -102,6 +102,8 @@ class ExpressionFunctionValues extends DoubleValues {
 
   @Override
   public boolean advanceExact(int doc) throws IOException {
+    init();
+
     if (currentDoc == doc) {
       return true;
     }

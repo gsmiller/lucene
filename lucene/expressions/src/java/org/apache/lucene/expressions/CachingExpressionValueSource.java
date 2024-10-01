@@ -53,35 +53,9 @@ final class CachingExpressionValueSource extends ExpressionValueSource {
     return getValuesWithCache(readerContext, scores, new HashMap<>());
   }
 
-  private DoubleValues getValuesWithCache(
+  DoubleValues getValuesWithCache(
       LeafReaderContext readerContext, DoubleValues scores, Map<String, DoubleValues> valuesCache)
       throws IOException {
-    DoubleValues[] externalValues = new DoubleValues[expression.variables.length];
-
-    for (int i = 0; i < variables.length; ++i) {
-      String externalName = expression.variables[i];
-      DoubleValues values = valuesCache.get(externalName);
-      if (values == null) {
-        if (variables[i] instanceof CachingExpressionValueSource) {
-          values =
-              ((CachingExpressionValueSource) variables[i])
-                  .getValuesWithCache(readerContext, scores, valuesCache);
-        } else {
-          values = variables[i].getValues(readerContext, scores);
-        }
-        if (values == null) {
-          throw new RuntimeException(
-              "Unrecognized variable ("
-                  + externalName
-                  + ") referenced in expression ("
-                  + expression.sourceText
-                  + ").");
-        }
-        valuesCache.put(externalName, values);
-      }
-      externalValues[i] = zeroWhenUnpositioned(values);
-    }
-
-    return new ExpressionFunctionValues(expression, externalValues);
+    return new ExpressionFunctionValues(expression, variables, scores, readerContext, valuesCache);
   }
 }

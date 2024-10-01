@@ -63,69 +63,7 @@ class ExpressionValueSource extends DoubleValuesSource {
   @Override
   public DoubleValues getValues(LeafReaderContext readerContext, DoubleValues scores)
       throws IOException {
-    Map<String, DoubleValues> valuesCache = new HashMap<>();
-    DoubleValues[] externalValues = new DoubleValues[expression.variables.length];
-
-    for (int i = 0; i < variables.length; ++i) {
-      String externalName = expression.variables[i];
-      DoubleValues values = valuesCache.get(externalName);
-      if (values == null) {
-        values = variables[i].getValues(readerContext, scores);
-        if (values == null) {
-          throw new RuntimeException(
-              "Unrecognized variable ("
-                  + externalName
-                  + ") referenced in expression ("
-                  + expression.sourceText
-                  + ").");
-        }
-        valuesCache.put(externalName, values);
-      }
-      externalValues[i] = zeroWhenUnpositioned(values);
-    }
-
-    return new ExpressionFunctionValues(expression, externalValues);
-  }
-
-  /**
-   * Create a wrapper around all the expression arguments to do two things:
-   *
-   * <ol>
-   *   <li>Default to 0 for any argument that doesn't have a value for a given doc (i.e.,
-   *       #advanceExact returns false)
-   *   <li>Be as lazy as possible about actually advancing to the given doc until the argument value
-   *       is actually needed by the expression. For a given doc, some arguments may not actually be
-   *       needed, e.g., because of condition short-circuiting (<code>(true || X)</code> doesn't
-   *       need to evaluate <code>X</code>) or ternary branching (<code>true ? X : Y</code> doesn't
-   *       need to evaluate <code>Y</code>).
-   * </ol>
-   */
-  static DoubleValues zeroWhenUnpositioned(DoubleValues in) {
-    return new DoubleValues() {
-
-      int currentDoc = -1;
-      double value;
-      boolean computed = false;
-
-      @Override
-      public double doubleValue() throws IOException {
-        if (computed == false) {
-          value = in.advanceExact(currentDoc) ? in.doubleValue() : 0;
-          computed = true;
-        }
-        return value;
-      }
-
-      @Override
-      public boolean advanceExact(int doc) {
-        if (currentDoc == doc) {
-          return true;
-        }
-        currentDoc = doc;
-        computed = false;
-        return true;
-      }
-    };
+    return new ExpressionFunctionValues(expression, variables, scores, readerContext);
   }
 
   @Override

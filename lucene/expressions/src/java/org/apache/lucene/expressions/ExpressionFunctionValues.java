@@ -17,29 +17,94 @@
 package org.apache.lucene.expressions;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.DoubleValues;
+import org.apache.lucene.search.DoubleValuesSource;
 
 /** A {@link DoubleValues} which evaluates an expression */
 class ExpressionFunctionValues extends DoubleValues {
   final Expression expression;
-  final DoubleValues[] functionValues;
+  final DoubleValuesSource[] variableSources;
+  final DoubleValues scores;
+  final LeafReaderContext context;
+  final Map<String, DoubleValues> valuesCache;
+
+  DoubleValues[] functionValues;
+
   double currentValue;
   int currentDoc = -1;
   boolean computed;
 
-  ExpressionFunctionValues(Expression expression, DoubleValues[] functionValues) {
+  ExpressionFunctionValues(
+      Expression expression,
+      DoubleValuesSource[] variableSources,
+      DoubleValues scores,
+      LeafReaderContext context) {
     if (expression == null) {
       throw new NullPointerException();
     }
-    if (functionValues == null) {
+    this.expression = expression;
+    this.variableSources = variableSources;
+    this.scores = scores;
+    this.context = context;
+    this.valuesCache = null;
+  }
+
+  ExpressionFunctionValues(
+      Expression expression,
+      DoubleValuesSource[] variableSources,
+      DoubleValues scores,
+      LeafReaderContext context,
+      Map<String, DoubleValues> valuesCache) {
+    if (expression == null) {
       throw new NullPointerException();
     }
     this.expression = expression;
-    this.functionValues = functionValues;
+    this.variableSources = variableSources;
+    this.scores = scores;
+    this.context = context;
+    this.valuesCache = valuesCache;
+  }
+
+  private void init() throws IOException {
+    if (functionValues != null) {
+      return;
+    }
+
+    functionValues = new DoubleValues[expression.variables.length];
+    Map<String, DoubleValues> cache =
+        valuesCache != null ? valuesCache : new HashMap<>();
+
+    for (int i = 0; i < functionValues.length; i++) {
+      String externalName = expression.variables[i];
+      DoubleValues values = cache.get(externalName);
+      if (values == null) {
+        if (variableSources[i] instanceof CachingExpressionValueSource cvs) {
+          values = cvs.getValuesWithCache(context, scores, cache);
+        } else {
+          values = variableSources[i].getValues(context, scores);
+        }
+        if (values == null) {
+          throw new RuntimeException(
+              "Unrecognized variable ("
+                  + externalName
+                  + ") referenced in expression ("
+                  + expression.sourceText
+                  + ").");
+        }
+        values = zeroWhenUnpositioned(values);
+        cache.put(externalName, values);
+      }
+      functionValues[i] = values;
+    }
   }
 
   @Override
-  public boolean advanceExact(int doc) {
+  public boolean advanceExact(int doc) throws IOException {
+    init();
+
     if (currentDoc == doc) {
       return true;
     }
@@ -58,5 +123,46 @@ class ExpressionFunctionValues extends DoubleValues {
       computed = true;
     }
     return currentValue;
+  }
+
+  /**
+   * Create a wrapper around all the expression arguments to do two things:
+   *
+   * <ol>
+   *   <li>Default to 0 for any argument that doesn't have a value for a given doc (i.e.,
+   *       #advanceExact returns false)
+   *   <li>Be as lazy as possible about actually advancing to the given doc until the argument value
+   *       is actually needed by the expression. For a given doc, some arguments may not actually be
+   *       needed, e.g., because of condition short-circuiting (<code>(true || X)</code> doesn't
+   *       need to evaluate <code>X</code>) or ternary branching (<code>true ? X : Y</code> doesn't
+   *       need to evaluate <code>Y</code>).
+   * </ol>
+   */
+  private static DoubleValues zeroWhenUnpositioned(DoubleValues in) {
+    return new DoubleValues() {
+
+      int currentDoc = -1;
+      double value;
+      boolean computed = false;
+
+      @Override
+      public double doubleValue() throws IOException {
+        if (computed == false) {
+          value = in.advanceExact(currentDoc) ? in.doubleValue() : 0;
+          computed = true;
+        }
+        return value;
+      }
+
+      @Override
+      public boolean advanceExact(int doc) {
+        if (currentDoc == doc) {
+          return true;
+        }
+        currentDoc = doc;
+        computed = false;
+        return true;
+      }
+    };
   }
 }

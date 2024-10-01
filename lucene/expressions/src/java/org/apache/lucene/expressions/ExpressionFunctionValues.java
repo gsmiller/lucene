@@ -17,6 +17,7 @@
 package org.apache.lucene.expressions;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.lucene.index.LeafReaderContext;
@@ -42,14 +43,7 @@ class ExpressionFunctionValues extends DoubleValues {
       DoubleValuesSource[] variableSources,
       DoubleValues scores,
       LeafReaderContext context) {
-    if (expression == null) {
-      throw new NullPointerException();
-    }
-    this.expression = expression;
-    this.variableSources = variableSources;
-    this.scores = scores;
-    this.context = context;
-    this.valuesCache = null;
+    this(expression, variableSources, scores, context, null);
   }
 
   ExpressionFunctionValues(
@@ -66,6 +60,11 @@ class ExpressionFunctionValues extends DoubleValues {
     this.scores = scores;
     this.context = context;
     this.valuesCache = valuesCache;
+    try {
+      init();
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
   }
 
   private void init() throws IOException {
@@ -103,8 +102,6 @@ class ExpressionFunctionValues extends DoubleValues {
 
   @Override
   public boolean advanceExact(int doc) throws IOException {
-    init();
-
     if (currentDoc == doc) {
       return true;
     }

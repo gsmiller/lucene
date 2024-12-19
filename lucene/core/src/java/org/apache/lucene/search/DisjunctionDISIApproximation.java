@@ -18,6 +18,7 @@ package org.apache.lucene.search;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
@@ -57,43 +58,41 @@ public final class DisjunctionDISIApproximation extends DocIdSetIterator {
     // leadCost) <= 1.5, or Σ min(leadCost, cost) <= 1.5 * leadCost. Other clauses are checked
     // linearly.
 
-    List<DisiWrapper> wrappers = new ArrayList<>(subIterators);
+    DisiWrapper[] wrappers = subIterators.toArray(DisiWrapper[]::new);
     // Sort by descending cost.
-    wrappers.sort(Comparator.<DisiWrapper>comparingLong(w -> w.cost).reversed());
-
-    int leadsCount = 0;
-    DisiWrapper[] leads = new DisiWrapper[wrappers.size()];
+    Arrays.sort(wrappers, Comparator.<DisiWrapper>comparingLong(w -> w.cost).reversed());
 
     long reorderThreshold = leadCost + (leadCost >> 1);
     if (reorderThreshold < 0) { // overflow
       reorderThreshold = Long.MAX_VALUE;
     }
+
     long reorderCost = 0;
     long cost = 0;
-    while (wrappers.isEmpty() == false) {
-      DisiWrapper last = wrappers.getLast();
-      long inc = Math.min(last.cost, leadCost);
+    int lastIdx = wrappers.length - 1;
+    for ( ; lastIdx >= 0; lastIdx--) {
+      long lastCost = wrappers[lastIdx].cost;
+      long inc = Math.min(lastCost, leadCost);
       if (reorderCost + inc < 0 || reorderCost + inc > reorderThreshold) {
         break;
       }
-      DisiWrapper w = wrappers.removeLast();
-      cost += w.cost;
-      leads[leadsCount++] = w;
       reorderCost += inc;
+      cost += lastCost;
     }
 
     // Make leadIterators not empty. This helps save conditionals in the implementation which are
     // rarely tested.
-    if (leadsCount == 0) {
-      DisiWrapper w = wrappers.removeLast();
-      cost += w.cost;
-      leads[leadsCount++] = w;
+    if (lastIdx == wrappers.length - 1) {
+      cost += wrappers[lastIdx].cost;
+      lastIdx--;
     }
 
-    leadIterators = new DisiPriorityQueue(leadsCount);
-    leadIterators.addAll(leads, 0, leadsCount);
+    assert lastIdx >= -1 && lastIdx < wrappers.length - 1;
+    int pqLen = wrappers.length - lastIdx - 1;
+    leadIterators = new DisiPriorityQueue(pqLen);
+    leadIterators.addAll(wrappers, lastIdx + 1, pqLen);
 
-    otherIterators = wrappers.toArray(DisiWrapper[]::new);
+    otherIterators = Arrays.copyOfRange(wrappers, 0, lastIdx + 1);
     minOtherDoc = Integer.MAX_VALUE;
     for (DisiWrapper w : otherIterators) {
       cost += w.cost;

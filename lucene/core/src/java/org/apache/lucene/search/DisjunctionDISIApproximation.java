@@ -61,43 +61,45 @@ public final class DisjunctionDISIApproximation extends DocIdSetIterator {
     // Sort by descending cost.
     wrappers.sort(Comparator.<DisiWrapper>comparingLong(w -> w.cost).reversed());
 
-    leadIterators = new DisiPriorityQueue(subIterators.size());
+    int leadsCount = 0;
+    DisiWrapper[] leads = new DisiWrapper[wrappers.size()];
 
     long reorderThreshold = leadCost + (leadCost >> 1);
     if (reorderThreshold < 0) { // overflow
       reorderThreshold = Long.MAX_VALUE;
     }
     long reorderCost = 0;
+    long cost = 0;
     while (wrappers.isEmpty() == false) {
       DisiWrapper last = wrappers.getLast();
       long inc = Math.min(last.cost, leadCost);
       if (reorderCost + inc < 0 || reorderCost + inc > reorderThreshold) {
         break;
       }
-      leadIterators.add(wrappers.removeLast());
+      DisiWrapper w = wrappers.removeLast();
+      cost += w.cost;
+      leads[leadsCount++] = w;
       reorderCost += inc;
     }
 
     // Make leadIterators not empty. This helps save conditionals in the implementation which are
     // rarely tested.
-    if (leadIterators.size() == 0) {
-      leadIterators.add(wrappers.removeLast());
+    if (leadsCount == 0) {
+      DisiWrapper w = wrappers.removeLast();
+      cost += w.cost;
+      leads[leadsCount++] = w;
     }
+
+    leadIterators = new DisiPriorityQueue(leadsCount);
+    leadIterators.addAll(leads, 0, leadsCount);
 
     otherIterators = wrappers.toArray(DisiWrapper[]::new);
-
-    long cost = 0;
-    for (DisiWrapper w : leadIterators) {
-      cost += w.cost;
-    }
-    for (DisiWrapper w : otherIterators) {
-      cost += w.cost;
-    }
-    this.cost = cost;
     minOtherDoc = Integer.MAX_VALUE;
     for (DisiWrapper w : otherIterators) {
+      cost += w.cost;
       minOtherDoc = Math.min(minOtherDoc, w.doc);
     }
+    this.cost = cost;
     leadTop = leadIterators.top();
   }
 

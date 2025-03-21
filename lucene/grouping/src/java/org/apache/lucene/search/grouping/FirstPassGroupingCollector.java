@@ -242,8 +242,8 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
 
       // We already tested that the document is competitive, so replace
       // the bottom group with this new group.
-      assert groupPq.size() == topNGroups;
-      CollectedSearchGroup<T> bottomGroup = groupPq.top();
+      CollectedSearchGroup<T> bottomGroup = groupPq.pop();
+      assert groupPq.size() == topNGroups - 1;
 
       groupMap.remove(bottomGroup.groupValue);
 
@@ -257,9 +257,10 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
       }
 
       groupMap.put(bottomGroup.groupValue, bottomGroup);
+      groupPq.add(bottomGroup);
+      assert groupPq.size() == topNGroups;
 
-      bottomGroup = groupPq.updateTop();
-      lastComparatorSlot = bottomGroup.comparatorSlot;
+      lastComparatorSlot = groupPq.top().comparatorSlot;
       for (LeafFieldComparator fc : leafComparators) {
         fc.setBottom(lastComparatorSlot);
       }
@@ -358,9 +359,9 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
           FieldComparator<?> fc = comparators[compIDX];
           final int c = reversed[compIDX] * fc.compare(a.comparatorSlot, b.comparatorSlot);
           if (c != 0) {
-            return c < 0;
+            return c > 0;
           } else if (compIDX == compIDXEnd) {
-            return a.topDoc < b.topDoc;
+            return a.topDoc > b.topDoc;
           }
         }
       }

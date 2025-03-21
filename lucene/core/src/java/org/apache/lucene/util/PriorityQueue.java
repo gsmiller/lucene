@@ -270,6 +270,20 @@ public abstract class PriorityQueue<T> implements Iterable<T> {
     return false;
   }
 
+  public final void remove(int pos) {
+    if (pos <= 0 || pos > size) {
+      throw new IndexOutOfBoundsException("pos: " + pos + ", size: " + size);
+    }
+    heap[pos] = heap[size];
+    heap[size] = null;
+    size--;
+    if (pos <= size) {
+      if (upHeap(pos) == false) {
+        downHeap(pos);
+      }
+    }
+  }
+
   private final boolean upHeap(int origPos) {
     int i = origPos;
     T node = heap[i]; // save bottom node

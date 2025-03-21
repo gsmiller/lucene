@@ -32,6 +32,7 @@ import org.apache.lucene.search.SimpleCollector;
 import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.util.CollectionUtil;
+import org.apache.lucene.util.PriorityQueue;
 
 /**
  * FirstPassGroupingCollector is the first of two passes necessary to collect grouped hits. This
@@ -58,6 +59,7 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
    * @lucene.internal
    */
   protected TreeSet<CollectedSearchGroup<T>> orderedGroups;
+  private PriorityQueue<CollectedSearchGroup<T>> groupPq;
 
   private int docBase;
   private int spareSlot;
@@ -171,7 +173,7 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
 
     // Downside: if the number of unique groups is very low, this is
     // wasted effort as we will most likely be updating an existing group.
-    if (orderedGroups != null) {
+    if (groupPq != null) {
       for (int compIDX = 0; ; compIDX++) {
         final int c = reversed[compIDX] * leafComparators[compIDX].compareBottom(doc);
         if (c < 0) {
@@ -232,7 +234,7 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
           // End of startup transient: we now have max
           // number of groups; from here on we will drop
           // bottom group when we insert new one:
-          buildSortedSet();
+          buildPriorityQueue();
         }
 
         return;
@@ -240,8 +242,8 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
 
       // We already tested that the document is competitive, so replace
       // the bottom group with this new group.
-      final CollectedSearchGroup<T> bottomGroup = orderedGroups.pollLast();
-      assert orderedGroups.size() == topNGroups - 1;
+      assert groupPq.size() == topNGroups;
+      CollectedSearchGroup<T> bottomGroup = groupPq.top();
 
       groupMap.remove(bottomGroup.groupValue);
 
@@ -249,15 +251,15 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
       bottomGroup.groupValue = groupSelector.copyValue();
       bottomGroup.topDoc = docBase + doc;
 
+      int lastComparatorSlot = bottomGroup.comparatorSlot;
       for (LeafFieldComparator fc : leafComparators) {
-        fc.copy(bottomGroup.comparatorSlot, doc);
+        fc.copy(lastComparatorSlot, doc);
       }
 
       groupMap.put(bottomGroup.groupValue, bottomGroup);
-      orderedGroups.add(bottomGroup);
-      assert orderedGroups.size() == topNGroups;
 
-      final int lastComparatorSlot = orderedGroups.last().comparatorSlot;
+      bottomGroup = groupPq.updateTop();
+      lastComparatorSlot = bottomGroup.comparatorSlot;
       for (LeafFieldComparator fc : leafComparators) {
         fc.setBottom(lastComparatorSlot);
       }
@@ -292,10 +294,10 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
     // TODO: optimize this
 
     final CollectedSearchGroup<T> prevLast;
-    if (orderedGroups != null) {
-      prevLast = orderedGroups.last();
-      orderedGroups.remove(group);
-      assert orderedGroups.size() == topNGroups - 1;
+    if (groupPq != null) {
+      prevLast = groupPq.top();
+      groupPq.remove(group);
+      assert groupPq.size() == topNGroups - 1;
     } else {
       prevLast = null;
     }
@@ -308,10 +310,10 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
     group.comparatorSlot = tmp;
 
     // Re-add the changed group
-    if (orderedGroups != null) {
-      orderedGroups.add(group);
-      assert orderedGroups.size() == topNGroups;
-      final CollectedSearchGroup<?> newLast = orderedGroups.last();
+    if (groupPq != null) {
+      groupPq.add(group);
+      assert groupPq.size() == topNGroups;
+      final CollectedSearchGroup<?> newLast = groupPq.top();
       // If we changed the value of the last group, or changed which group was last, then update
       // bottom:
       if (group == newLast || prevLast != newLast) {
@@ -345,6 +347,31 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
 
     for (LeafFieldComparator fc : leafComparators) {
       fc.setBottom(orderedGroups.last().comparatorSlot);
+    }
+  }
+
+  private void buildPriorityQueue() throws IOException {
+    groupPq = new PriorityQueue<>(topNGroups) {
+      @Override
+      protected boolean lessThan(CollectedSearchGroup<T> a, CollectedSearchGroup<T> b) {
+        for (int compIDX = 0; ; compIDX++) {
+          FieldComparator<?> fc = comparators[compIDX];
+          final int c = reversed[compIDX] * fc.compare(a.comparatorSlot, b.comparatorSlot);
+          if (c != 0) {
+            return c < 0;
+          } else if (compIDX == compIDXEnd) {
+            return a.topDoc < b.topDoc;
+          }
+        }
+      }
+    };
+
+    groupPq.addAll(groupMap.values());
+    assert groupPq.size() == topNGroups;
+
+    CollectedSearchGroup<T> top = groupPq.top();
+    for (LeafFieldComparator fc : leafComparators) {
+      fc.setBottom(top.comparatorSlot);
     }
   }
 

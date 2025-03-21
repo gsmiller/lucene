@@ -21,6 +21,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
+
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.FieldComparator;
 import org.apache.lucene.search.LeafFieldComparator;
@@ -54,6 +56,7 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
   private final int compIDXEnd;
 
   private PriorityQueue<CollectedSearchGroup<T>> groupPq;
+  private List<SearchGroup<T>> sortedGroups;
 
   private int docBase;
   private int spareSlot;
@@ -119,35 +122,37 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
       throw new IllegalArgumentException("groupOffset must be >= 0 (got " + groupOffset + ")");
     }
 
-    if (groupMap.size() <= groupOffset) {
+    int groupCount = groupMap.size();
+    if (groupCount <= groupOffset) {
       return null;
     }
 
-    if (groupPq == null) {
-      buildPriorityQueue();
-    }
-    assert groupPq.size() == groupMap.size();
+    if (sortedGroups == null) {
+      sortedGroups = new ArrayList<>(groupCount);
 
-    final ArrayList<SearchGroup<T>> result = new ArrayList<>();
-    final int sortFieldCount = comparators.length;
-
-    while (groupPq.size() > 0) {
-      CollectedSearchGroup<T> group = groupPq.pop();
-      assert group != null;
-
-      SearchGroup<T> searchGroup = new SearchGroup<>();
-      searchGroup.groupValue = group.groupValue;
-      searchGroup.sortValues = new Object[sortFieldCount];
-      for (int sortFieldIDX = 0; sortFieldIDX < sortFieldCount; sortFieldIDX++) {
-        searchGroup.sortValues[sortFieldIDX] =
-            comparators[sortFieldIDX].value(group.comparatorSlot);
+      if (groupPq == null) {
+        buildPriorityQueue();
       }
-      result.add(searchGroup);
-    }
-    result.subList(0, result.size() - groupOffset);
-    Collections.reverse(result);
 
-    return result;
+      assert groupPq.size() == groupCount;
+      final int sortFieldCount = comparators.length;
+      for (int i = 0; i < groupCount; i++) {
+        CollectedSearchGroup<T> group = groupPq.pop();
+        assert group != null;
+
+        SearchGroup<T> searchGroup = new SearchGroup<>();
+        searchGroup.groupValue = group.groupValue;
+        searchGroup.sortValues = new Object[sortFieldCount];
+        for (int sortFieldIDX = 0; sortFieldIDX < sortFieldCount; sortFieldIDX++) {
+          searchGroup.sortValues[sortFieldIDX] =
+              comparators[sortFieldIDX].value(group.comparatorSlot);
+        }
+        sortedGroups.add(searchGroup);
+      }
+      Collections.reverse(sortedGroups);
+    }
+
+    return sortedGroups.subList(groupOffset, sortedGroups.size());
   }
 
   @Override

@@ -196,9 +196,7 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
   @Override
   public void collect(int doc) throws IOException {
 
-    if (isCompetitive(doc) == false) {
-      return;
-    }
+
 
     // TODO: should we add option to mean "ignore docs that
     // don't have the group field" (instead of stuffing them
@@ -207,6 +205,10 @@ public class FirstPassGroupingCollector<T> extends SimpleCollector {
     T groupValue = groupSelector.currentValue();
 
     final CollectedSearchGroup<T> group = groupMap.get(groupValue);
+
+    if (isCompetitive(doc) == false) {
+      return;
+    }
 
     if (group == null) {
 
